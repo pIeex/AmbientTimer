@@ -245,9 +245,15 @@ function applyTheme(theme, { previewOnly = false } = {}) {
 }
 
 function getMediaTypeFromUrl(url) {
-  const clean = url.split("?")[0].toLowerCase();
-  if (clean.includes(".mp4")) return "video";
-  if (clean.includes(".png") || clean.includes(".jpg") || clean.includes(".jpeg")) return "image";
+  let clean = "";
+  try {
+    const parsed = new URL(url);
+    clean = parsed.pathname.toLowerCase();
+  } catch {
+    clean = url.split("?")[0].split("#")[0].toLowerCase();
+  }
+  if (/\.(mp4)$/.test(clean) || clean.includes(".mp4")) return "video";
+  if (/\.(png|jpg|jpeg)$/.test(clean) || clean.includes(".png") || clean.includes(".jpg") || clean.includes(".jpeg")) return "image";
   return null;
 }
 
@@ -1089,12 +1095,22 @@ async function handleAddOnlineTheme() {
         storagePath: record.storage_path || "",
         source: "cloud"
       });
-    } else if (result?.error) {
-      showToast({
-        message: result.error.message || "Could not add this URL.",
-        type: "error",
-        durationMs: 2000
-      });
+    } else {
+      if (result?.error) {
+        showToast({
+          message: result.error.message || "Could not add this URL.",
+          type: "error",
+          durationMs: 2000
+        });
+      }
+      const list = getOnlineThemes();
+      const exists = list.some(item => item.url === theme.url && item.mediaType === theme.mediaType);
+      if (!exists) {
+        list.push(theme);
+        setOnlineThemes(list);
+      }
+      await renderOnlineTheme(theme);
+      promptLoginToast();
     }
   } else {
     const list = getOnlineThemes();
@@ -1507,6 +1523,7 @@ async function handleLogout() {
   updateProfileUI();
   localStorage.setItem("ambientLastPage", "home");
   transitionTo("pageHome");
+  setTimeout(() => window.location.reload(), 250);
 }
 
 async function handleAuthSubmit() {
@@ -1761,6 +1778,7 @@ async function initAuth() {
 
       setMessage(settingsMessage, "Profile updated.", false);
       await refreshAuthState();
+      setTimeout(() => window.location.reload(), 250);
     });
   }
 
