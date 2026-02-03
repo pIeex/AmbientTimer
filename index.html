@@ -30,95 +30,204 @@
     </div>
   </div>
 
+  <!-- Profile Menu (Pages 1 & 2 only) -->
+  <div id="profileShell" class="profile-shell" aria-hidden="true">
+    <button id="profileBtn" class="profile-btn" aria-haspopup="true" aria-expanded="false">
+      <span id="profileAvatar" class="profile-avatar">A</span>
+    </button>
+    <div id="profileMenu" class="profile-menu" role="menu">
+      <div class="profile-mini">
+        <div id="profileMiniAvatar" class="profile-avatar sm">A</div>
+        <div>
+          <div id="profileName" class="profile-name">Guest</div>
+          <div id="profileEmail" class="profile-email">Not signed in</div>
+        </div>
+      </div>
+      <div class="profile-actions">
+        <button id="profileSettingsBtn" class="menu-btn">Settings</button>
+        <button id="profileLoginBtn" class="menu-btn">Log in</button>
+        <button id="profileSignupBtn" class="menu-btn">Sign up</button>
+        <button id="profileLogoutBtn" class="menu-btn danger">Log out</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Auth Modal -->
+  <div id="authOverlay" class="auth-overlay" aria-hidden="true">
+    <div class="auth-card" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+      <div class="auth-header">
+        <h3 id="authTitle">Welcome back</h3>
+        <button id="authCloseBtn" class="icon-btn" aria-label="Close">✕</button>
+      </div>
+      <div class="auth-tabs">
+        <button id="authTabLogin" class="tab-btn active">Log in</button>
+        <button id="authTabSignup" class="tab-btn">Sign up</button>
+      </div>
+      <div class="auth-body">
+        <div class="field">
+          <label for="authEmail">Email</label>
+          <input id="authEmail" type="email" placeholder="you@email.com">
+        </div>
+        <div class="field auth-signup-only">
+          <label for="authDisplayName">Display name</label>
+          <input id="authDisplayName" type="text" placeholder="Your name">
+        </div>
+        <div class="field">
+          <label for="authPassword">Password</label>
+          <input id="authPassword" type="password" placeholder="••••••••">
+        </div>
+        <div class="field auth-signup-only">
+          <label for="authPasswordConfirm">Confirm password</label>
+          <input id="authPasswordConfirm" type="password" placeholder="••••••••">
+        </div>
+        <button id="authSubmitBtn" class="primary-btn">Continue</button>
+        <p id="authMessage" class="auth-message"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toasts -->
+  <div id="toastContainer" class="toast-container"></div>
+
   <!-- ============================= -->
   <!-- PAGE 1: Background Selection -->
   <!-- ============================= -->
   <div id="page1" class="page active">
-    <h1>Choose Your Atmosphere</h1>
+    <div class="page-content">
+      <h1>Choose Your Atmosphere</h1>
 
-    <h2 class="section-title">Built-in Themes</h2>
-    <div class="grid" id="defaultThemes">
+      <h2 class="section-title">Built-in Themes</h2>
+      <div class="grid default-grid" id="defaultThemes">
 
-      <div class="thumb"
-        onclick="chooseBg('videos/one.mp4')"
-        style="background-image:url('images/one.png')">
+        <div class="thumb"
+          onclick="chooseBg('videos/one.mp4')"
+          style="background-image:url('images/one.png')">
+        </div>
+
+        <div class="thumb"
+          onclick="chooseBg('videos/two.mp4')"
+          style="background-image:url('images/two.png')">
+        </div>
+
+        <div class="thumb"
+          onclick="chooseBg('videos/three.mp4')"
+          style="background-image:url('images/three.png')">
+        </div>
+
+        <div class="thumb"
+          onclick="chooseBg('videos/four.mp4')"
+          style="background-image:url('images/four.png')">
+        </div>
+
+        <div class="thumb"
+          onclick="chooseBg('videos/five.mp4')"
+          style="background-image:url('images/five.png')">
+        </div>
+
+        <div class="thumb"
+          onclick="chooseBg('videos/six.mp4')"
+          style="background-image:url('images/six.png')">
+        </div>
+
+        <div class="thumb"
+          onclick="chooseBg('videos/seven.mp4')"
+          style="background-image:url('images/seven.png')">
+        </div>
+
       </div>
 
-      <div class="thumb"
-        onclick="chooseBg('videos/two.mp4')"
-        style="background-image:url('images/two.png')">
+      <h2 class="section-title">Your Themes</h2>
+      <div class="controls">
+        <label class="upload">
+          Upload From Device
+          <input id="localUploadInput" type="file"
+            accept="video/mp4,image/png,image/jpeg">
+        </label>
       </div>
+      <div class="grid auto-grid" id="localThemesGrid"></div>
 
-      <div class="thumb"
-        onclick="chooseBg('videos/three.mp4')"
-        style="background-image:url('images/three.png')">
+      <h2 class="section-title">Online Themes</h2>
+      <div class="controls">
+        <input id="onlineUrlInput" class="url-input" type="url"
+          placeholder="Paste an image or video URL (.jpg, .png, .mp4)">
+        <button id="addOnlineThemeBtn" class="add-btn">Add URL</button>
       </div>
-
-      <div class="thumb"
-        onclick="chooseBg('videos/four.mp4')"
-        style="background-image:url('images/four.png')">
-      </div>
-
-      <div class="thumb"
-        onclick="chooseBg('videos/five.mp4')"
-        style="background-image:url('images/five.png')">
-      </div>
-
-      <div class="thumb"
-        onclick="chooseBg('videos/six.mp4')"
-        style="background-image:url('images/six.png')">
-      </div>
-
-      <div class="thumb"
-        onclick="chooseBg('videos/seven.mp4')"
-        style="background-image:url('images/seven.png')">
-      </div>
-
+      <div class="grid auto-grid" id="onlineThemesGrid"></div>
     </div>
-
-    <h2 class="section-title">Your Themes</h2>
-    <div class="controls">
-      <label class="upload">
-        Upload From Device
-        <input id="localUploadInput" type="file"
-          accept="video/mp4,image/png,image/jpeg">
-      </label>
-    </div>
-    <div class="grid" id="localThemesGrid"></div>
-
-    <h2 class="section-title">Online Themes</h2>
-    <div class="controls">
-      <input id="onlineUrlInput" class="url-input" type="url"
-        placeholder="Paste an image or video URL (.jpg, .png, .mp4)">
-      <button id="addOnlineThemeBtn" class="add-btn">Add URL</button>
-    </div>
-    <div class="grid" id="onlineThemesGrid"></div>
   </div>
 
   <!-- ============================= -->
   <!-- PAGE 2: Time Selection -->
   <!-- ============================= -->
   <div id="page2" class="page">
-    <h1>Set Your Time</h1>
+    <div class="page-content">
+      <h1>Set Your Time</h1>
 
-    <div class="time-grid">
-      <button onclick="startTimer(60)">1 Hour</button>
-      <button onclick="startTimer(90)">1h 30m</button>
-      <button onclick="startTimer(120)">2 Hours</button>
-      <button onclick="startTimer(150)">2h 30m</button>
-    </div>
-
-    <!-- Custom Time -->
-    <div class="custom">
-      <p>Or set your own:</p>
-
-      <div class="custom-inputs">
-        <input id="customHours" type="number" placeholder="Hours" min="0">
-        <input id="customMinutes" type="number" placeholder="Minutes" min="0">
-        <input id="customSeconds" type="number" placeholder="Seconds" min="0">
+      <div class="time-grid">
+        <button onclick="startTimer(60)">1 Hour</button>
+        <button onclick="startTimer(90)">1h 30m</button>
+        <button onclick="startTimer(120)">2 Hours</button>
+        <button onclick="startTimer(150)">2h 30m</button>
       </div>
 
-      <button class="startCustom" onclick="startCustomTimer()">Start</button>
+      <!-- Custom Time -->
+      <div class="custom">
+        <p>Or set your own:</p>
+
+        <div class="custom-inputs">
+          <input id="customHours" type="number" placeholder="Hours" min="0">
+          <input id="customMinutes" type="number" placeholder="Minutes" min="0">
+          <input id="customSeconds" type="number" placeholder="Seconds" min="0">
+        </div>
+
+        <button class="startCustom" onclick="startCustomTimer()">Start</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================= -->
+  <!-- PAGE 4: Settings -->
+  <!-- ============================= -->
+  <div id="pageSettings" class="page settings-page">
+    <div class="page-content">
+      <div class="settings-header">
+        <button id="settingsBackBtn" class="icon-btn">←</button>
+        <h1>Profile Settings</h1>
+      </div>
+
+      <div class="settings-card">
+        <div class="settings-row">
+          <div class="avatar-wrap">
+            <img id="settingsAvatar" class="settings-avatar" alt="Profile avatar">
+            <div id="settingsAvatarFallback" class="settings-avatar fallback">A</div>
+          </div>
+          <div class="settings-actions">
+            <label class="upload small">
+              Change photo
+              <input id="settingsAvatarInput" type="file" accept="image/png,image/jpeg">
+            </label>
+            <p class="muted">Square images look best.</p>
+          </div>
+        </div>
+
+        <div class="settings-grid">
+          <div class="field">
+            <label for="settingsDisplayName">Display name</label>
+            <input id="settingsDisplayName" type="text" placeholder="Your name">
+          </div>
+          <div class="field">
+            <label for="settingsEmail">Email</label>
+            <input id="settingsEmail" type="email" placeholder="you@email.com">
+          </div>
+          <div class="field">
+            <label for="settingsPassword">New password</label>
+            <input id="settingsPassword" type="password" placeholder="••••••••">
+          </div>
+        </div>
+
+        <button id="settingsSaveBtn" class="primary-btn">Save changes</button>
+        <p id="settingsMessage" class="auth-message"></p>
+      </div>
     </div>
   </div>
 
@@ -131,6 +240,7 @@
   </div>
 
   <!-- Script -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="script.js"></script>
 
 </body>

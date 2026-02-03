@@ -20,19 +20,60 @@ const confirmTitle = document.getElementById("confirmTitle");
 const confirmMessage = document.getElementById("confirmMessage");
 const confirmCancel = document.getElementById("confirmCancel");
 const confirmOk = document.getElementById("confirmOk");
+const profileShell = document.getElementById("profileShell");
+const profileBtn = document.getElementById("profileBtn");
+const profileMenu = document.getElementById("profileMenu");
+const profileAvatar = document.getElementById("profileAvatar");
+const profileMiniAvatar = document.getElementById("profileMiniAvatar");
+const profileName = document.getElementById("profileName");
+const profileEmail = document.getElementById("profileEmail");
+const profileSettingsBtn = document.getElementById("profileSettingsBtn");
+const profileLoginBtn = document.getElementById("profileLoginBtn");
+const profileSignupBtn = document.getElementById("profileSignupBtn");
+const profileLogoutBtn = document.getElementById("profileLogoutBtn");
+const authOverlay = document.getElementById("authOverlay");
+const authCloseBtn = document.getElementById("authCloseBtn");
+const authTabLogin = document.getElementById("authTabLogin");
+const authTabSignup = document.getElementById("authTabSignup");
+const authTitle = document.getElementById("authTitle");
+const authEmail = document.getElementById("authEmail");
+const authDisplayName = document.getElementById("authDisplayName");
+const authPassword = document.getElementById("authPassword");
+const authPasswordConfirm = document.getElementById("authPasswordConfirm");
+const authSubmitBtn = document.getElementById("authSubmitBtn");
+const authMessage = document.getElementById("authMessage");
+const toastContainer = document.getElementById("toastContainer");
+const settingsBackBtn = document.getElementById("settingsBackBtn");
+const settingsAvatar = document.getElementById("settingsAvatar");
+const settingsAvatarFallback = document.getElementById("settingsAvatarFallback");
+const settingsAvatarInput = document.getElementById("settingsAvatarInput");
+const settingsDisplayName = document.getElementById("settingsDisplayName");
+const settingsEmail = document.getElementById("settingsEmail");
+const settingsPassword = document.getElementById("settingsPassword");
+const settingsSaveBtn = document.getElementById("settingsSaveBtn");
+const settingsMessage = document.getElementById("settingsMessage");
 
 const LOCAL_DB_NAME = "ambientTimerThemes";
 const LOCAL_STORE_NAME = "localThemes";
 const ONLINE_STORAGE_KEY = "ambientTimerOnlineThemes";
 
+const SUPABASE_URL = window.SUPABASE_URL || "YOUR_SUPABASE_URL";
+const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || "YOUR_SUPABASE_ANON_KEY";
+
 const localObjectUrls = new Map();
 const bgVideos = [bgVideoA, bgVideoB];
-const VIDEO_LOOP_FADE_MS = 900;
-const VIDEO_LOOP_LEAD_SEC = Math.max(0.2, VIDEO_LOOP_FADE_MS / 1000 + 0.05);
+const VIDEO_LOOP_BASE_FADE_MS = 900;
+const VIDEO_LOOP_MIN_FADE_MS = 160;
+const VIDEO_LOOP_SHORT_CLIP_SEC = 5.5;
 
 let activeVideoIndex = 0;
 let isCrossfading = false;
 let currentVideoSrc = "";
+let currentUser = null;
+let supabaseClient = null;
+let lastMainPage = "page1";
+let authMode = "login";
+let cloudThemesCache = [];
 
 /* ================================
    PAGE CONTROL (Bulletproof)
@@ -44,6 +85,10 @@ function showPage(id) {
   });
 
   document.getElementById(id).classList.add("active");
+  document.body.dataset.page = id;
+  if (id === "page1" || id === "page2") {
+    lastMainPage = id;
+  }
 }
 
 /* ================================
@@ -175,7 +220,11 @@ function renderThemeCard(theme, container, options) {
         message: "This cannot be undone."
       });
       if (!ok) return;
-      await options.onDelete(theme);
+      if (options.onDelete) {
+        await options.onDelete(theme);
+      } else if (theme.source === "cloud") {
+        await deleteCloudTheme(theme);
+      }
     });
     card.appendChild(del);
   }
@@ -233,9 +282,106 @@ function captureVideoFrame(src) {
   });
 }
 
+function mapCloudTheme(item) {
+  return {
+    id: item.id,
+    kind: item.kind,
+    mediaType: item.media_type,
+    src: item.url,
+    preview: item.preview_url || null,
+    cloudId: item.id,
+    storagePath: item.storage_path || "",
+    source: "cloud"
+  };
+}
+
+function getCloudThemesByKind(kind) {
+  return cloudThemesCache
+    .filter(item => item.kind === kind)
+    .map(mapCloudTheme);
+}
+
+async function saveCloudThemeRecord({ kind, mediaType, url, storagePath = "" }) {
+  if (!supabaseClient || !currentUser) return null;
+  const payload = {
+    user_id: currentUser.id,
+    kind,
+    media_type: mediaType,
+    url,
+    storage_path: storagePath
+  };
+  const { data, error } = await supabaseClient
+    .from("themes")
+    .insert(payload)
+    .select("*")
+    .single();
+  if (error) return null;
+  return data;
+}
+
+async function uploadThemeFile(file, id) {
+  if (!supabaseClient || !currentUser) return null;
+  const ext = file.name.split(".").pop() || "mp4";
+  const path = `${currentUser.id}/${id}-${Date.now()}.${ext}`;
+  const { error } = await supabaseClient.storage.from("themes").upload(path, file, {
+    upsert: true,
+    contentType: file.type
+  });
+  if (error) return null;
+  const { data } = supabaseClient.storage.from("themes").getPublicUrl(path);
+  return { publicUrl: data.publicUrl, path };
+}
+
+async function deleteCloudTheme(theme) {
+  if (!supabaseClient || !currentUser || !theme.cloudId) return;
+  await supabaseClient.from("themes")
+    .delete()
+    .eq("id", theme.cloudId)
+    .eq("user_id", currentUser.id);
+  if (theme.storagePath) {
+    await supabaseClient.storage.from("themes").remove([theme.storagePath]);
+  }
+}
+
 async function addLocalThemeFromFile(file, autoApply = false) {
   const mediaType = file.type.startsWith("video") ? "video" : "image";
   const id = makeId();
+
+  if (isLoggedIn() && supabaseClient) {
+    const upload = await uploadThemeFile(file, id);
+    if (upload) {
+      const preview = mediaType === "image"
+        ? upload.publicUrl
+        : await captureVideoFrame(upload.publicUrl);
+      const record = await saveCloudThemeRecord({
+        kind: "local",
+        mediaType,
+        url: upload.publicUrl,
+        storagePath: upload.path
+      });
+      if (record) {
+        const theme = {
+          id: record.id,
+          kind: "local",
+          mediaType,
+          src: upload.publicUrl,
+          preview,
+          cloudId: record.id,
+          storagePath: upload.path,
+          source: "cloud"
+        };
+        renderThemeCard(theme, localThemesGrid, {
+          deletable: true,
+          onDelete: async (t) => {
+            await deleteCloudTheme(t);
+            loadAndRenderLocalThemes();
+          }
+        });
+        if (autoApply) applyTheme(theme);
+        return;
+      }
+    }
+  }
 
   await saveLocalTheme({
     id,
@@ -267,6 +413,10 @@ async function addLocalThemeFromFile(file, autoApply = false) {
     }
   });
 
+  if (!isLoggedIn()) {
+    promptLoginToast();
+  }
+
   if (autoApply) {
     applyTheme(theme);
   }
@@ -297,20 +447,40 @@ async function handleAddOnlineTheme() {
     createdAt: Date.now()
   };
 
-  const list = getOnlineThemes();
-  list.push(theme);
-  setOnlineThemes(list);
-
-  await renderOnlineTheme(theme);
+  if (isLoggedIn() && supabaseClient) {
+    const record = await saveCloudThemeRecord({
+      kind: "online",
+      mediaType,
+      url
+    });
+    if (record) {
+      await renderOnlineTheme({
+        id: record.id,
+        kind: "online",
+        mediaType,
+        url: record.url,
+        storagePath: record.storage_path || "",
+        source: "cloud"
+      });
+    }
+  } else {
+    const list = getOnlineThemes();
+    list.push(theme);
+    setOnlineThemes(list);
+    await renderOnlineTheme(theme);
+    promptLoginToast();
+  }
   onlineUrlInput.value = "";
 }
 
 async function renderOnlineTheme(theme) {
-  let preview = null;
-  if (theme.mediaType === "image") {
-    preview = theme.url;
-  } else {
-    preview = await captureVideoFrame(theme.url);
+  let preview = theme.preview || null;
+  if (!preview) {
+    if (theme.mediaType === "image") {
+      preview = theme.url;
+    } else {
+      preview = await captureVideoFrame(theme.url);
+    }
   }
 
   const cardTheme = {
@@ -318,14 +488,21 @@ async function renderOnlineTheme(theme) {
     kind: "online",
     mediaType: theme.mediaType,
     src: theme.url,
-    preview
+    preview,
+    cloudId: theme.cloudId || theme.id,
+    storagePath: theme.storagePath || "",
+    source: theme.source || ""
   };
 
   renderThemeCard(cardTheme, onlineThemesGrid, {
     deletable: true,
     onDelete: async (t) => {
-      const list = getOnlineThemes().filter(item => item.id !== t.id);
-      setOnlineThemes(list);
+      if (t.source === "cloud") {
+        await deleteCloudTheme(t);
+      } else {
+        const list = getOnlineThemes().filter(item => item.id !== t.id);
+        setOnlineThemes(list);
+      }
       loadAndRenderOnlineThemes();
     }
   });
@@ -370,6 +547,25 @@ async function loadAndRenderLocalThemes() {
       }
     });
   }
+
+  if (isLoggedIn()) {
+    const cloudLocal = getCloudThemesByKind("local");
+    for (const theme of cloudLocal) {
+      let preview = theme.preview;
+      if (!preview) {
+        preview = theme.mediaType === "image"
+          ? theme.src
+          : await captureVideoFrame(theme.src);
+      }
+      renderThemeCard({ ...theme, preview }, localThemesGrid, {
+        deletable: true,
+        onDelete: async (t) => {
+          await deleteCloudTheme(t);
+          loadAndRenderLocalThemes();
+        }
+      });
+    }
+  }
 }
 
 async function loadAndRenderOnlineThemes() {
@@ -379,6 +575,22 @@ async function loadAndRenderOnlineThemes() {
   const list = getOnlineThemes();
   for (const theme of list) {
     await renderOnlineTheme(theme);
+  }
+
+  if (isLoggedIn()) {
+    const cloudOnline = getCloudThemesByKind("online");
+    for (const theme of cloudOnline) {
+      await renderOnlineTheme({
+        id: theme.id,
+        kind: "online",
+        mediaType: theme.mediaType,
+        url: theme.src,
+        preview: theme.preview,
+        storagePath: theme.storagePath,
+        source: "cloud",
+        cloudId: theme.cloudId
+      });
+    }
   }
 }
 
@@ -403,6 +615,7 @@ function initThemeLibrary() {
 }
 
 initThemeLibrary();
+initAuth();
 
 /* ================================
    CONFIRM MODAL
@@ -439,6 +652,314 @@ function openConfirm({ title, message }) {
     confirmOk.addEventListener("click", onOk);
     confirmOverlay.addEventListener("click", onOverlay);
     document.addEventListener("keydown", onKeydown);
+  });
+}
+
+/* ================================
+   AUTH + PROFILE (SUPABASE)
+   ================================ */
+
+function initSupabaseClient() {
+  if (!window.supabase) return null;
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return null;
+  if (SUPABASE_URL.includes("YOUR_SUPABASE")) return null;
+  return window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+}
+
+function isLoggedIn() {
+  return !!currentUser;
+}
+
+function showToast({ message, actions = [] }) {
+  if (!toastContainer) return;
+  const toast = document.createElement("div");
+  toast.className = "toast";
+  const msg = document.createElement("div");
+  msg.textContent = message;
+  toast.appendChild(msg);
+
+  if (actions.length) {
+    const actionRow = document.createElement("div");
+    actionRow.className = "toast-actions";
+    actions.forEach(action => {
+      const btn = document.createElement("button");
+      btn.className = "menu-btn";
+      btn.textContent = action.label;
+      btn.addEventListener("click", () => {
+        action.onClick();
+        toast.remove();
+      });
+      actionRow.appendChild(btn);
+    });
+    toast.appendChild(actionRow);
+  }
+
+  toastContainer.appendChild(toast);
+  setTimeout(() => toast.remove(), 7000);
+}
+
+function openAuth(mode = "login") {
+  if (!authOverlay) return;
+  if (!supabaseClient) {
+    showToast({
+      message: "Supabase is not configured yet. Add your URL and anon key in script.js.",
+    });
+    return;
+  }
+  setAuthMode(mode);
+  authOverlay.classList.add("active");
+  authOverlay.setAttribute("aria-hidden", "false");
+}
+
+function closeAuth() {
+  if (!authOverlay) return;
+  authOverlay.classList.remove("active");
+  authOverlay.setAttribute("aria-hidden", "true");
+  authMessage.textContent = "";
+}
+
+function setAuthMode(mode) {
+  authMode = mode;
+  const isSignup = mode === "signup";
+  authTabLogin.classList.toggle("active", !isSignup);
+  authTabSignup.classList.toggle("active", isSignup);
+  authTitle.textContent = isSignup ? "Create your account" : "Welcome back";
+  document.querySelectorAll(".auth-signup-only").forEach(el => {
+    el.style.display = isSignup ? "grid" : "none";
+  });
+  authMessage.textContent = "";
+}
+
+async function handleAuthSubmit() {
+  if (!supabaseClient) return;
+  const email = (authEmail.value || "").trim();
+  const password = authPassword.value || "";
+  const displayName = (authDisplayName.value || "").trim();
+  const confirm = authPasswordConfirm.value || "";
+
+  if (!email || !password) {
+    authMessage.textContent = "Please enter an email and password.";
+    return;
+  }
+
+  if (authMode === "signup") {
+    if (password !== confirm) {
+      authMessage.textContent = "Passwords do not match.";
+      return;
+    }
+    const { error } = await supabaseClient.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { display_name: displayName || email.split("@")[0] }
+      }
+    });
+    authMessage.textContent = error ? error.message : "Check your email to confirm your account.";
+  } else {
+    const { error } = await supabaseClient.auth.signInWithPassword({
+      email,
+      password
+    });
+    authMessage.textContent = error ? error.message : "Signed in successfully.";
+    if (!error) closeAuth();
+  }
+}
+
+function updateProfileUI() {
+  const name = currentUser?.user_metadata?.display_name || "Guest";
+  const email = currentUser?.email || "Not signed in";
+  const avatarUrl = currentUser?.user_metadata?.avatar_url || "";
+  const initial = name ? name.charAt(0).toUpperCase() : "A";
+
+  if (profileName) profileName.textContent = name;
+  if (profileEmail) profileEmail.textContent = email;
+  if (profileAvatar) profileAvatar.textContent = initial;
+  if (profileMiniAvatar) profileMiniAvatar.textContent = initial;
+
+  if (profileAvatar && avatarUrl) {
+    profileAvatar.style.backgroundImage = `url(${avatarUrl})`;
+    profileAvatar.style.backgroundSize = "cover";
+    profileAvatar.style.color = "transparent";
+  } else if (profileAvatar) {
+    profileAvatar.style.backgroundImage = "";
+    profileAvatar.style.color = "";
+  }
+
+  if (profileMiniAvatar && avatarUrl) {
+    profileMiniAvatar.style.backgroundImage = `url(${avatarUrl})`;
+    profileMiniAvatar.style.backgroundSize = "cover";
+    profileMiniAvatar.style.color = "transparent";
+  } else if (profileMiniAvatar) {
+    profileMiniAvatar.style.backgroundImage = "";
+    profileMiniAvatar.style.color = "";
+  }
+
+  if (settingsAvatar) {
+    if (avatarUrl) {
+      settingsAvatar.src = avatarUrl;
+      settingsAvatar.style.display = "block";
+      settingsAvatarFallback.style.display = "none";
+    } else {
+      settingsAvatar.style.display = "none";
+      settingsAvatarFallback.style.display = "grid";
+      settingsAvatarFallback.textContent = initial;
+    }
+  }
+
+  if (settingsDisplayName) settingsDisplayName.value = name === "Guest" ? "" : name;
+  if (settingsEmail) settingsEmail.value = currentUser?.email || "";
+
+  const loggedIn = isLoggedIn();
+  if (profileLoginBtn) profileLoginBtn.style.display = loggedIn ? "none" : "block";
+  if (profileSignupBtn) profileSignupBtn.style.display = loggedIn ? "none" : "block";
+  if (profileLogoutBtn) profileLogoutBtn.style.display = loggedIn ? "block" : "none";
+  if (profileSettingsBtn) profileSettingsBtn.style.display = loggedIn ? "block" : "none";
+}
+
+async function initAuth() {
+  supabaseClient = initSupabaseClient();
+  document.body.dataset.page = "page1";
+
+  if (authTabLogin) authTabLogin.addEventListener("click", () => setAuthMode("login"));
+  if (authTabSignup) authTabSignup.addEventListener("click", () => setAuthMode("signup"));
+  if (authCloseBtn) authCloseBtn.addEventListener("click", closeAuth);
+  if (authSubmitBtn) authSubmitBtn.addEventListener("click", handleAuthSubmit);
+  if (authOverlay) {
+    authOverlay.addEventListener("click", (e) => {
+      if (e.target === authOverlay) closeAuth();
+    });
+  }
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && authOverlay?.classList.contains("active")) {
+      closeAuth();
+    }
+  });
+
+  if (profileBtn) {
+    profileBtn.addEventListener("click", () => {
+      if (!profileMenu) return;
+      const isOpen = profileMenu.classList.toggle("active");
+      profileBtn.setAttribute("aria-expanded", String(isOpen));
+    });
+  }
+
+  document.addEventListener("click", (e) => {
+    if (!profileMenu || !profileBtn) return;
+    if (profileMenu.contains(e.target) || profileBtn.contains(e.target)) return;
+    profileMenu.classList.remove("active");
+    profileBtn.setAttribute("aria-expanded", "false");
+  });
+
+  if (profileLoginBtn) profileLoginBtn.addEventListener("click", () => {
+    if (profileMenu) profileMenu.classList.remove("active");
+    openAuth("login");
+  });
+  if (profileSignupBtn) profileSignupBtn.addEventListener("click", () => {
+    if (profileMenu) profileMenu.classList.remove("active");
+    openAuth("signup");
+  });
+  if (profileLogoutBtn) profileLogoutBtn.addEventListener("click", async () => {
+    if (!supabaseClient) return;
+    if (profileMenu) profileMenu.classList.remove("active");
+    await supabaseClient.auth.signOut();
+  });
+  if (profileSettingsBtn) profileSettingsBtn.addEventListener("click", () => {
+    if (profileMenu) profileMenu.classList.remove("active");
+    showPage("pageSettings");
+  });
+  if (settingsBackBtn) settingsBackBtn.addEventListener("click", () => showPage(lastMainPage));
+
+  if (settingsSaveBtn) {
+    settingsSaveBtn.addEventListener("click", async () => {
+      if (!supabaseClient || !currentUser) return;
+      const updates = {};
+      const newName = (settingsDisplayName.value || "").trim();
+      if (newName) updates.display_name = newName;
+      const newEmail = (settingsEmail.value || "").trim();
+      const newPassword = settingsPassword.value || "";
+      const hasMetadata = Object.keys(updates).length > 0;
+
+      if (hasMetadata) {
+        await supabaseClient.auth.updateUser({ data: updates });
+      }
+      if (newEmail) {
+        await supabaseClient.auth.updateUser({ email: newEmail });
+      }
+      if (newPassword) {
+        await supabaseClient.auth.updateUser({ password: newPassword });
+      }
+
+      settingsMessage.textContent = "Profile updated.";
+      settingsPassword.value = "";
+      await refreshAuthState();
+    });
+  }
+
+  if (settingsAvatarInput) {
+    settingsAvatarInput.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file || !supabaseClient || !currentUser) return;
+      const path = `${currentUser.id}/avatar-${Date.now()}.${file.name.split(".").pop()}`;
+      const { error } = await supabaseClient.storage.from("avatars").upload(path, file, {
+        upsert: true,
+        contentType: file.type
+      });
+      if (error) {
+        settingsMessage.textContent = error.message;
+        return;
+      }
+      const { data } = supabaseClient.storage.from("avatars").getPublicUrl(path);
+      await supabaseClient.auth.updateUser({ data: { avatar_url: data.publicUrl } });
+      settingsMessage.textContent = "Avatar updated.";
+      await refreshAuthState();
+    });
+  }
+
+  if (!supabaseClient) {
+    updateProfileUI();
+    return;
+  }
+
+  await refreshAuthState();
+  supabaseClient.auth.onAuthStateChange(async () => {
+    await refreshAuthState();
+  });
+}
+
+async function refreshAuthState() {
+  if (!supabaseClient) return;
+  const { data } = await supabaseClient.auth.getSession();
+  currentUser = data?.session?.user || null;
+  updateProfileUI();
+  await loadCloudThemes();
+  loadAndRenderLocalThemes();
+  loadAndRenderOnlineThemes();
+}
+
+async function loadCloudThemes() {
+  if (!supabaseClient || !currentUser) {
+    cloudThemesCache = [];
+    return;
+  }
+  const { data, error } = await supabaseClient
+    .from("themes")
+    .select("*")
+    .eq("user_id", currentUser.id)
+    .order("created_at", { ascending: false });
+  if (error) {
+    cloudThemesCache = [];
+    return;
+  }
+  cloudThemesCache = data || [];
+}
+
+function promptLoginToast() {
+  showToast({
+    message: "To keep themes across devices, please log in or sign up.",
+    actions: [
+      { label: "Log in", onClick: () => openAuth("login") },
+      { label: "Sign up", onClick: () => openAuth("signup") }
+    ]
   });
 }
 
@@ -542,6 +1063,34 @@ document.addEventListener("keydown", (e) => {
    SEAMLESS VIDEO LOOPING
    ================================ */
 
+function normalizeSrc(src) {
+  try {
+    return new URL(src, window.location.href).href;
+  } catch {
+    return src;
+  }
+}
+
+function getAdaptiveFadeMs(durationSec) {
+  if (!Number.isFinite(durationSec) || durationSec <= 0) {
+    return VIDEO_LOOP_BASE_FADE_MS;
+  }
+  if (durationSec <= VIDEO_LOOP_SHORT_CLIP_SEC) {
+    return VIDEO_LOOP_MIN_FADE_MS;
+  }
+  const scaled = Math.round(durationSec * 120);
+  return Math.min(VIDEO_LOOP_BASE_FADE_MS, Math.max(VIDEO_LOOP_MIN_FADE_MS, scaled));
+}
+
+function getLeadSec(fadeMs) {
+  return Math.max(0.18, fadeMs / 1000 + 0.05);
+}
+
+function setFadeMsForVideo(video, fadeMs) {
+  if (!video) return;
+  video.style.setProperty("--fade-ms", `${fadeMs}ms`);
+}
+
 function initVideoElements() {
   bgVideos.forEach(video => {
     if (!video) return;
@@ -577,48 +1126,77 @@ function prepareVideo(video, src) {
 }
 
 function startSeamlessVideoLoop(src) {
-  currentVideoSrc = src;
+  currentVideoSrc = normalizeSrc(src);
   isCrossfading = false;
 
   const active = getActiveVideo();
   const idle = getIdleVideo();
 
-  prepareVideo(active, src);
-  prepareVideo(idle, src);
+  prepareVideo(active, currentVideoSrc);
+  prepareVideo(idle, currentVideoSrc);
 
   active.currentTime = 0;
   active.play().catch(() => {});
   idle.pause();
   idle.currentTime = 0;
 
+  setFadeMsForVideo(active, VIDEO_LOOP_BASE_FADE_MS);
+  setFadeMsForVideo(idle, VIDEO_LOOP_BASE_FADE_MS);
   setActiveLayer(active);
 }
 
 function handleVideoTimeUpdate(e) {
   const video = e.currentTarget;
   if (video !== getActiveVideo()) return;
-  if (isCrossfading || video.src !== currentVideoSrc) return;
+  const activeSrc = normalizeSrc(video.currentSrc || video.src);
+  if (isCrossfading || activeSrc !== currentVideoSrc) return;
 
   const duration = video.duration;
   if (!Number.isFinite(duration) || duration <= 0) return;
 
+  if (duration <= VIDEO_LOOP_SHORT_CLIP_SEC) {
+    video.loop = true;
+    return;
+  }
+
+  video.loop = false;
+  const fadeMs = getAdaptiveFadeMs(duration);
+  const leadSec = getLeadSec(fadeMs);
   const remaining = duration - video.currentTime;
-  if (remaining > VIDEO_LOOP_LEAD_SEC) return;
+  if (remaining > leadSec) return;
 
   isCrossfading = true;
   const idle = getIdleVideo();
-
-  idle.currentTime = 0;
-  idle.play().catch(() => {});
-  setActiveLayer(idle);
-
   const previousActive = video;
-  setTimeout(() => {
-    previousActive.pause();
-    previousActive.currentTime = 0;
-    activeVideoIndex = 1 - activeVideoIndex;
-    isCrossfading = false;
-  }, VIDEO_LOOP_FADE_MS + 40);
+
+  const doCrossfade = () => {
+    if (activeSrc !== currentVideoSrc) {
+      isCrossfading = false;
+      return;
+    }
+    setFadeMsForVideo(previousActive, fadeMs);
+    setFadeMsForVideo(idle, fadeMs);
+    idle.currentTime = 0;
+    idle.play().then(() => {
+      setActiveLayer(idle);
+      setTimeout(() => {
+        previousActive.pause();
+        previousActive.currentTime = 0;
+        activeVideoIndex = 1 - activeVideoIndex;
+        isCrossfading = false;
+      }, fadeMs + 40);
+    }).catch(() => {
+      isCrossfading = false;
+    });
+  };
+
+  if (idle.readyState >= 2) {
+    doCrossfade();
+  } else {
+    idle.addEventListener("canplay", () => {
+      doCrossfade();
+    }, { once: true });
+  }
 }
 
 initVideoElements();
