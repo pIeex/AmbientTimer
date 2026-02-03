@@ -731,8 +731,8 @@ async function saveCloudThemeRecord({ kind, mediaType, url, storagePath = "", na
     .insert(payload)
     .select("*")
     .single();
-  if (error) return null;
-  return data;
+  if (error) return { data: null, error };
+  return { data, error: null };
 }
 
 async function uploadThemeFile(file, id) {
@@ -797,14 +797,15 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
       const preview = mediaType === "image"
         ? upload.publicUrl
         : await captureVideoFrame(upload.publicUrl);
-      const record = await saveCloudThemeRecord({
+      const result = await saveCloudThemeRecord({
         kind: "local",
         mediaType,
         name,
         url: upload.publicUrl,
         storagePath: upload.path
       });
-      if (record) {
+      if (result?.data) {
+        const record = result.data;
         const theme = {
           id: record.id,
           kind: "local",
@@ -831,6 +832,12 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
         });
         if (autoApply) applyTheme(theme);
         return;
+      } else if (result?.error) {
+        showToast({
+          message: result.error.message || "Could not save theme to cloud.",
+          type: "error",
+          durationMs: 2000
+        });
       }
     }
   }
@@ -958,13 +965,14 @@ async function handleAddOnlineTheme() {
   };
 
   if (isLoggedIn() && supabaseClient) {
-    const record = await saveCloudThemeRecord({
+    const result = await saveCloudThemeRecord({
       kind: "online",
       mediaType,
       url,
       name: theme.name
     });
-    if (record) {
+    if (result?.data) {
+      const record = result.data;
       await renderOnlineTheme({
         id: record.id,
         kind: "online",
@@ -973,6 +981,12 @@ async function handleAddOnlineTheme() {
         name: record.name || theme.name,
         storagePath: record.storage_path || "",
         source: "cloud"
+      });
+    } else if (result?.error) {
+      showToast({
+        message: result.error.message || "Could not add this URL.",
+        type: "error",
+        durationMs: 2000
       });
     }
   } else {
@@ -1425,7 +1439,9 @@ async function syncGoogleProfileIfNeeded(user) {
 }
 
 function updateProfileUI() {
-  const name = currentUser?.user_metadata?.display_name || "Guest";
+  const meta = currentUser?.user_metadata || {};
+  const fallbackName = meta.full_name || meta.name || (currentUser?.email ? currentUser.email.split("@")[0] : "");
+  const name = meta.display_name || fallbackName || "Guest";
   const email = currentUser?.email || "Not signed in";
   const avatarUrl = currentUser?.user_metadata?.avatar_url || "";
   const initial = name ? name.charAt(0).toUpperCase() : "A";
@@ -1558,7 +1574,19 @@ async function initAuth() {
   if (profileLogoutBtn) profileLogoutBtn.addEventListener("click", async () => {
     if (!supabaseClient) return;
     if (profileMenu) profileMenu.classList.remove("active");
-    await supabaseClient.auth.signOut();
+    const { error } = await supabaseClient.auth.signOut();
+    if (error) {
+      showToast({
+        message: error.message || "Logout failed.",
+        type: "error",
+        durationMs: 2000
+      });
+      return;
+    }
+    currentUser = null;
+    updateProfileUI();
+    localStorage.setItem("ambientLastPage", "home");
+    transitionTo("pageHome");
   });
   if (profileSettingsBtn) profileSettingsBtn.addEventListener("click", () => {
     if (profileMenu) profileMenu.classList.remove("active");
@@ -1576,10 +1604,18 @@ async function initAuth() {
       const hasMetadata = Object.keys(updates).length > 0;
 
       if (hasMetadata) {
-        await supabaseClient.auth.updateUser({ data: updates });
+        const { error } = await supabaseClient.auth.updateUser({ data: updates });
+        if (error) {
+          setMessage(settingsMessage, error.message, true);
+          return;
+        }
       }
       if (newEmail) {
-        await supabaseClient.auth.updateUser({ email: newEmail });
+        const { error } = await supabaseClient.auth.updateUser({ email: newEmail });
+        if (error) {
+          setMessage(settingsMessage, error.message, true);
+          return;
+        }
       }
 
       setMessage(settingsMessage, "Profile updated.", false);
@@ -1665,6 +1701,8 @@ async function refreshAuthState() {
   const { data } = await supabaseClient.auth.getSession();
   currentUser = data?.session?.user || null;
   await syncGoogleProfileIfNeeded(currentUser);
+  const fresh = await supabaseClient.auth.getUser();
+  currentUser = fresh?.data?.user || currentUser;
   updateProfileUI();
   await loadCloudThemes();
   loadAndRenderLocalThemes();
