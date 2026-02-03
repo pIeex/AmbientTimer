@@ -57,8 +57,8 @@ const LOCAL_DB_NAME = "ambientTimerThemes";
 const LOCAL_STORE_NAME = "localThemes";
 const ONLINE_STORAGE_KEY = "ambientTimerOnlineThemes";
 
-const SUPABASE_URL = window.SUPABASE_URL || "YOUR_SUPABASE_URL";
-const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || "YOUR_SUPABASE_ANON_KEY";
+const SUPABASE_URL = window.SUPABASE_URL || "https://fytjxvaxxtmnaoynpxqy.supabase.co";
+const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5dGp4dmF4eHRtbmFveW5weHF5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAxMTMzMjEsImV4cCI6MjA4NTY4OTMyMX0.CxVEQUgYEfkVqtyj78pyDCuWfgqU98r3oFTzS7ijM-0";
 
 const localObjectUrls = new Map();
 const bgVideos = [bgVideoA, bgVideoB];
