@@ -20,6 +20,13 @@ const confirmTitle = document.getElementById("confirmTitle");
 const confirmMessage = document.getElementById("confirmMessage");
 const confirmCancel = document.getElementById("confirmCancel");
 const confirmOk = document.getElementById("confirmOk");
+const topBar = document.getElementById("topBar");
+const themeSearch = document.getElementById("themeSearch");
+const homeTimerBtn = document.getElementById("homeTimerBtn");
+const homeSignupBtn = document.getElementById("homeSignupBtn");
+const homeGoThemesBtn = document.getElementById("homeGoThemesBtn");
+const homeUsername = document.getElementById("homeUsername");
+const timerBackBtn = document.getElementById("timerBackBtn");
 const profileShell = document.getElementById("profileShell");
 const profileBtn = document.getElementById("profileBtn");
 const profileMenu = document.getElementById("profileMenu");
@@ -135,6 +142,22 @@ function makeId() {
   return `theme_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
+function deriveNameFromFile(file) {
+  if (!file || !file.name) return "Untitled";
+  return file.name.replace(/\.[^/.]+$/, "");
+}
+
+function deriveNameFromUrl(url) {
+  try {
+    const clean = url.split("?")[0];
+    const parts = clean.split("/");
+    const last = parts[parts.length - 1] || "Untitled";
+    return decodeURIComponent(last.replace(/\.[^/.]+$/, "")) || "Untitled";
+  } catch {
+    return "Untitled";
+  }
+}
+
 function openThemeDb() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(LOCAL_DB_NAME, 1);
@@ -179,6 +202,23 @@ async function deleteLocalTheme(id) {
   });
 }
 
+async function updateLocalThemeName(id, name) {
+  const db = await openThemeDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(LOCAL_STORE_NAME, "readwrite");
+    const store = tx.objectStore(LOCAL_STORE_NAME);
+    const req = store.get(id);
+    req.onsuccess = () => {
+      const item = req.result;
+      if (!item) return resolve();
+      item.name = name;
+      store.put(item);
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 function getOnlineThemes() {
   const raw = localStorage.getItem(ONLINE_STORAGE_KEY);
   if (!raw) return [];
@@ -199,6 +239,8 @@ function renderThemeCard(theme, container, options) {
   card.className = "thumb";
   card.dataset.id = theme.id || "";
   card.dataset.kind = theme.kind || "";
+  const displayName = theme.name || "Untitled";
+  card.dataset.name = displayName.toLowerCase();
   if (theme.mediaType === "video") {
     card.classList.add("video");
   }
@@ -208,6 +250,58 @@ function renderThemeCard(theme, container, options) {
   }
 
   card.addEventListener("click", () => applyTheme(theme));
+
+  const meta = document.createElement("div");
+  meta.className = "thumb-meta";
+  const nameSpan = document.createElement("span");
+  nameSpan.className = "thumb-name";
+  nameSpan.textContent = displayName;
+  meta.appendChild(nameSpan);
+
+  if (options && options.editable) {
+    const renameBtn = document.createElement("button");
+    renameBtn.className = "rename-btn";
+    renameBtn.textContent = "✎";
+    renameBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const input = document.createElement("input");
+      input.className = "rename-input";
+      input.value = nameSpan.textContent;
+      meta.replaceChild(input, nameSpan);
+      input.focus();
+      input.select();
+      input.addEventListener("click", (evt) => evt.stopPropagation());
+
+      const cleanup = (restore) => {
+        if (restore) {
+          meta.replaceChild(nameSpan, input);
+        }
+      };
+
+      input.addEventListener("keydown", async (evt) => {
+        if (evt.key === "Enter") {
+          const nextName = (input.value || "").trim();
+          if (!nextName) {
+            cleanup(true);
+            return;
+          }
+          if (options.onRename) {
+            await options.onRename(theme, nextName);
+          }
+          nameSpan.textContent = nextName;
+          card.dataset.name = nextName.toLowerCase();
+          cleanup(true);
+        } else if (evt.key === "Escape") {
+          cleanup(true);
+        }
+      });
+
+      input.addEventListener("blur", () => cleanup(true));
+    });
+    meta.appendChild(renameBtn);
+  }
+
+  card.appendChild(meta);
 
   if (options && options.deletable) {
     const del = document.createElement("button");
@@ -220,6 +314,7 @@ function renderThemeCard(theme, container, options) {
         message: "This cannot be undone."
       });
       if (!ok) return;
+      await animateRemoveCard(card);
       if (options.onDelete) {
         await options.onDelete(theme);
       } else if (theme.source === "cloud") {
@@ -229,7 +324,45 @@ function renderThemeCard(theme, container, options) {
     card.appendChild(del);
   }
 
+  card.classList.add("pop-in");
   container.appendChild(card);
+  applySearchFilter(themeSearch?.value || "");
+}
+
+function animateRemoveCard(card) {
+  return new Promise((resolve) => {
+    if (!card) return resolve();
+    card.classList.remove("pop-in");
+    card.classList.add("pop-out");
+    setTimeout(() => resolve(), 220);
+  });
+}
+
+function applySearchFilter(query) {
+  const q = (query || "").trim().toLowerCase();
+  const cards = document.querySelectorAll("#page1 .thumb");
+  cards.forEach(card => {
+    const name = (card.dataset.name || "").toLowerCase();
+    card.style.display = !q || name.includes(q) ? "" : "none";
+  });
+}
+
+function initBuiltInThemes() {
+  const builtins = document.querySelectorAll("#defaultThemes .thumb");
+  builtins.forEach(card => {
+    const src = card.dataset.src;
+    const mediaType = card.dataset.type || (src && src.endsWith(".mp4") ? "video" : "image");
+    const name = card.dataset.name || "Built-in";
+    card.dataset.name = name.toLowerCase();
+    card.addEventListener("click", () => applyTheme({ src, mediaType, name }));
+  });
+}
+
+function initSearch() {
+  if (!themeSearch) return;
+  themeSearch.addEventListener("input", (e) => {
+    applySearchFilter(e.target.value);
+  });
 }
 
 function createImagePreviewFromBlob(blob) {
@@ -287,6 +420,7 @@ function mapCloudTheme(item) {
     id: item.id,
     kind: item.kind,
     mediaType: item.media_type,
+    name: item.name || "Untitled",
     src: item.url,
     preview: item.preview_url || null,
     cloudId: item.id,
@@ -301,12 +435,13 @@ function getCloudThemesByKind(kind) {
     .map(mapCloudTheme);
 }
 
-async function saveCloudThemeRecord({ kind, mediaType, url, storagePath = "" }) {
+async function saveCloudThemeRecord({ kind, mediaType, url, storagePath = "", name = "Untitled" }) {
   if (!supabaseClient || !currentUser) return null;
   const payload = {
     user_id: currentUser.id,
     kind,
     media_type: mediaType,
+    name,
     url,
     storage_path: storagePath
   };
@@ -343,9 +478,18 @@ async function deleteCloudTheme(theme) {
   }
 }
 
+async function renameCloudTheme(theme, name) {
+  if (!supabaseClient || !currentUser || !theme.cloudId) return;
+  await supabaseClient.from("themes")
+    .update({ name })
+    .eq("id", theme.cloudId)
+    .eq("user_id", currentUser.id);
+}
+
 async function addLocalThemeFromFile(file, autoApply = false) {
   const mediaType = file.type.startsWith("video") ? "video" : "image";
   const id = makeId();
+  const name = deriveNameFromFile(file);
 
   if (isLoggedIn() && supabaseClient) {
     const upload = await uploadThemeFile(file, id);
@@ -356,6 +500,7 @@ async function addLocalThemeFromFile(file, autoApply = false) {
       const record = await saveCloudThemeRecord({
         kind: "local",
         mediaType,
+        name,
         url: upload.publicUrl,
         storagePath: upload.path
       });
@@ -364,6 +509,7 @@ async function addLocalThemeFromFile(file, autoApply = false) {
           id: record.id,
           kind: "local",
           mediaType,
+          name: record.name || name,
           src: upload.publicUrl,
           preview,
           cloudId: record.id,
@@ -372,6 +518,11 @@ async function addLocalThemeFromFile(file, autoApply = false) {
         };
         renderThemeCard(theme, localThemesGrid, {
           deletable: true,
+          editable: true,
+          onRename: async (t, nextName) => {
+            await renameCloudTheme(t, nextName);
+            loadAndRenderLocalThemes();
+          },
           onDelete: async (t) => {
             await deleteCloudTheme(t);
             loadAndRenderLocalThemes();
@@ -385,7 +536,7 @@ async function addLocalThemeFromFile(file, autoApply = false) {
 
   await saveLocalTheme({
     id,
-    name: file.name,
+    name,
     mediaType,
     blob: file,
     createdAt: Date.now()
@@ -401,9 +552,14 @@ async function addLocalThemeFromFile(file, autoApply = false) {
     preview = await captureVideoFrame(src);
   }
 
-  const theme = { id, kind: "local", mediaType, src, preview };
+  const theme = { id, kind: "local", mediaType, src, preview, name };
   renderThemeCard(theme, localThemesGrid, {
     deletable: true,
+    editable: true,
+    onRename: async (t, nextName) => {
+      await updateLocalThemeName(t.id, nextName);
+      loadAndRenderLocalThemes();
+    },
     onDelete: async (t) => {
       await deleteLocalTheme(t.id);
       const url = localObjectUrls.get(t.id);
@@ -435,7 +591,11 @@ async function handleAddOnlineTheme() {
 
   const mediaType = getMediaTypeFromUrl(url);
   if (!mediaType) {
-    alert("Please use a direct .mp4, .png, or .jpg URL.");
+    showToast({
+      message: "Please use a direct .mp4, .png, or .jpg URL.",
+      type: "error",
+      durationMs: 2000
+    });
     return;
   }
 
@@ -444,6 +604,7 @@ async function handleAddOnlineTheme() {
     kind: "online",
     mediaType,
     url,
+    name: deriveNameFromUrl(url),
     createdAt: Date.now()
   };
 
@@ -451,7 +612,8 @@ async function handleAddOnlineTheme() {
     const record = await saveCloudThemeRecord({
       kind: "online",
       mediaType,
-      url
+      url,
+      name: theme.name
     });
     if (record) {
       await renderOnlineTheme({
@@ -459,6 +621,7 @@ async function handleAddOnlineTheme() {
         kind: "online",
         mediaType,
         url: record.url,
+        name: record.name || theme.name,
         storagePath: record.storage_path || "",
         source: "cloud"
       });
@@ -482,11 +645,13 @@ async function renderOnlineTheme(theme) {
       preview = await captureVideoFrame(theme.url);
     }
   }
+  const name = theme.name || deriveNameFromUrl(theme.url);
 
   const cardTheme = {
     id: theme.id,
     kind: "online",
     mediaType: theme.mediaType,
+    name,
     src: theme.url,
     preview,
     cloudId: theme.cloudId || theme.id,
@@ -496,6 +661,18 @@ async function renderOnlineTheme(theme) {
 
   renderThemeCard(cardTheme, onlineThemesGrid, {
     deletable: true,
+    editable: true,
+    onRename: async (t, nextName) => {
+      if (t.source === "cloud") {
+        await renameCloudTheme(t, nextName);
+      } else {
+        const list = getOnlineThemes().map(item =>
+          item.id === t.id ? { ...item, name: nextName } : item
+        );
+        setOnlineThemes(list);
+      }
+      loadAndRenderOnlineThemes();
+    },
     onDelete: async (t) => {
       if (t.source === "cloud") {
         await deleteCloudTheme(t);
@@ -527,17 +704,24 @@ async function loadAndRenderLocalThemes() {
     } else {
       preview = await captureVideoFrame(src);
     }
+    const name = item.name || deriveNameFromFile(item.blob);
 
     const theme = {
       id: item.id,
       kind: "local",
       mediaType: item.mediaType,
       src,
-      preview
+      preview,
+      name
     };
 
     renderThemeCard(theme, localThemesGrid, {
       deletable: true,
+      editable: true,
+      onRename: async (t, nextName) => {
+        await updateLocalThemeName(t.id, nextName);
+        loadAndRenderLocalThemes();
+      },
       onDelete: async (t) => {
         await deleteLocalTheme(t.id);
         const url = localObjectUrls.get(t.id);
@@ -557,15 +741,22 @@ async function loadAndRenderLocalThemes() {
           ? theme.src
           : await captureVideoFrame(theme.src);
       }
-      renderThemeCard({ ...theme, preview }, localThemesGrid, {
-        deletable: true,
-        onDelete: async (t) => {
-          await deleteCloudTheme(t);
-          loadAndRenderLocalThemes();
-        }
-      });
-    }
+    renderThemeCard({ ...theme, preview }, localThemesGrid, {
+      deletable: true,
+      editable: true,
+      onRename: async (t, nextName) => {
+        await renameCloudTheme(t, nextName);
+        loadAndRenderLocalThemes();
+      },
+      onDelete: async (t) => {
+        await deleteCloudTheme(t);
+        loadAndRenderLocalThemes();
+      }
+    });
   }
+  }
+
+  applySearchFilter(themeSearch?.value || "");
 }
 
 async function loadAndRenderOnlineThemes() {
@@ -592,6 +783,8 @@ async function loadAndRenderOnlineThemes() {
       });
     }
   }
+
+  applySearchFilter(themeSearch?.value || "");
 }
 
 function initThemeLibrary() {
@@ -615,6 +808,8 @@ function initThemeLibrary() {
 }
 
 initThemeLibrary();
+initBuiltInThemes();
+initSearch();
 initAuth();
 
 /* ================================
@@ -670,13 +865,21 @@ function isLoggedIn() {
   return !!currentUser;
 }
 
-function showToast({ message, actions = [] }) {
+function showToast({ message, actions = [], type = "info", durationMs, closable = false }) {
   if (!toastContainer) return;
   const toast = document.createElement("div");
-  toast.className = "toast";
+  toast.className = `toast${type === "error" ? " error" : ""}`;
   const msg = document.createElement("div");
   msg.textContent = message;
   toast.appendChild(msg);
+
+  if (closable) {
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "toast-close";
+    closeBtn.textContent = "Close";
+    closeBtn.addEventListener("click", () => toast.remove());
+    toast.appendChild(closeBtn);
+  }
 
   if (actions.length) {
     const actionRow = document.createElement("div");
@@ -695,7 +898,8 @@ function showToast({ message, actions = [] }) {
   }
 
   toastContainer.appendChild(toast);
-  setTimeout(() => toast.remove(), 7000);
+  const ttl = durationMs ?? (type === "error" ? 2000 : 3000);
+  setTimeout(() => toast.remove(), ttl);
 }
 
 function openAuth(mode = "login") {
@@ -703,6 +907,8 @@ function openAuth(mode = "login") {
   if (!supabaseClient) {
     showToast({
       message: "Supabase is not configured yet. Add your URL and anon key in script.js.",
+      type: "error",
+      durationMs: 2000
     });
     return;
   }
@@ -715,7 +921,7 @@ function closeAuth() {
   if (!authOverlay) return;
   authOverlay.classList.remove("active");
   authOverlay.setAttribute("aria-hidden", "true");
-  authMessage.textContent = "";
+  setMessage(authMessage, "", false);
 }
 
 function setAuthMode(mode) {
@@ -727,7 +933,13 @@ function setAuthMode(mode) {
   document.querySelectorAll(".auth-signup-only").forEach(el => {
     el.style.display = isSignup ? "grid" : "none";
   });
-  authMessage.textContent = "";
+  setMessage(authMessage, "", false);
+}
+
+function setMessage(el, text, isError = false) {
+  if (!el) return;
+  el.textContent = text;
+  el.classList.toggle("error", isError);
 }
 
 async function handleAuthSubmit() {
@@ -738,13 +950,13 @@ async function handleAuthSubmit() {
   const confirm = authPasswordConfirm.value || "";
 
   if (!email || !password) {
-    authMessage.textContent = "Please enter an email and password.";
+    setMessage(authMessage, "Please enter an email and password.", true);
     return;
   }
 
   if (authMode === "signup") {
     if (password !== confirm) {
-      authMessage.textContent = "Passwords do not match.";
+      setMessage(authMessage, "Passwords do not match.", true);
       return;
     }
     const { error } = await supabaseClient.auth.signUp({
@@ -754,13 +966,13 @@ async function handleAuthSubmit() {
         data: { display_name: displayName || email.split("@")[0] }
       }
     });
-    authMessage.textContent = error ? error.message : "Check your email to confirm your account.";
+    setMessage(authMessage, error ? error.message : "Check your email to confirm your account.", !!error);
   } else {
     const { error } = await supabaseClient.auth.signInWithPassword({
       email,
       password
     });
-    authMessage.textContent = error ? error.message : "Signed in successfully.";
+    setMessage(authMessage, error ? error.message : "Signed in successfully.", !!error);
     if (!error) closeAuth();
   }
 }
@@ -770,6 +982,7 @@ function updateProfileUI() {
   const email = currentUser?.email || "Not signed in";
   const avatarUrl = currentUser?.user_metadata?.avatar_url || "";
   const initial = name ? name.charAt(0).toUpperCase() : "A";
+  const loggedIn = isLoggedIn();
 
   if (profileName) profileName.textContent = name;
   if (profileEmail) profileEmail.textContent = email;
@@ -809,30 +1022,32 @@ function updateProfileUI() {
   if (settingsDisplayName) settingsDisplayName.value = name === "Guest" ? "" : name;
   if (settingsEmail) settingsEmail.value = currentUser?.email || "";
 
-  const loggedIn = isLoggedIn();
   if (profileLoginBtn) profileLoginBtn.style.display = loggedIn ? "none" : "block";
   if (profileSignupBtn) profileSignupBtn.style.display = loggedIn ? "none" : "block";
   if (profileLogoutBtn) profileLogoutBtn.style.display = loggedIn ? "block" : "none";
   if (profileSettingsBtn) profileSettingsBtn.style.display = loggedIn ? "block" : "none";
+
+  document.body.dataset.auth = loggedIn ? "true" : "false";
+  if (homeUsername) homeUsername.textContent = loggedIn ? name : "";
 }
 
 async function initAuth() {
   supabaseClient = initSupabaseClient();
-  document.body.dataset.page = "page1";
+  document.body.dataset.page = "pageHome";
 
   if (authTabLogin) authTabLogin.addEventListener("click", () => setAuthMode("login"));
   if (authTabSignup) authTabSignup.addEventListener("click", () => setAuthMode("signup"));
   if (authCloseBtn) authCloseBtn.addEventListener("click", closeAuth);
   if (authSubmitBtn) authSubmitBtn.addEventListener("click", handleAuthSubmit);
-  if (authOverlay) {
-    authOverlay.addEventListener("click", (e) => {
-      if (e.target === authOverlay) closeAuth();
-    });
-  }
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && authOverlay?.classList.contains("active")) {
-      closeAuth();
+
+  if (homeTimerBtn) homeTimerBtn.addEventListener("click", () => showPage("page1"));
+  if (homeSignupBtn) homeSignupBtn.addEventListener("click", () => openAuth("signup"));
+  if (homeGoThemesBtn) homeGoThemesBtn.addEventListener("click", () => showPage("page1"));
+  if (timerBackBtn) timerBackBtn.addEventListener("click", () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
     }
+    showPage("page1");
   });
 
   if (profileBtn) {
@@ -889,7 +1104,7 @@ async function initAuth() {
         await supabaseClient.auth.updateUser({ password: newPassword });
       }
 
-      settingsMessage.textContent = "Profile updated.";
+      setMessage(settingsMessage, "Profile updated.", false);
       settingsPassword.value = "";
       await refreshAuthState();
     });
@@ -905,12 +1120,12 @@ async function initAuth() {
         contentType: file.type
       });
       if (error) {
-        settingsMessage.textContent = error.message;
+        setMessage(settingsMessage, error.message, true);
         return;
       }
       const { data } = supabaseClient.storage.from("avatars").getPublicUrl(path);
       await supabaseClient.auth.updateUser({ data: { avatar_url: data.publicUrl } });
-      settingsMessage.textContent = "Avatar updated.";
+      setMessage(settingsMessage, "Avatar updated.", false);
       await refreshAuthState();
     });
   }
@@ -956,6 +1171,8 @@ async function loadCloudThemes() {
 function promptLoginToast() {
   showToast({
     message: "To keep themes across devices, please log in or sign up.",
+    closable: true,
+    durationMs: 3000,
     actions: [
       { label: "Log in", onClick: () => openAuth("login") },
       { label: "Sign up", onClick: () => openAuth("signup") }

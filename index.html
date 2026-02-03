@@ -30,6 +30,18 @@
     </div>
   </div>
 
+  <!-- Top Bar -->
+  <div id="topBar" class="top-bar" aria-hidden="true">
+    <div class="top-left">
+      <img src="images/logo.png" alt="Ambient Timer" class="logo-img">
+      <span class="logo-text">Ambient Timer</span>
+    </div>
+    <div class="top-center">
+      <input id="themeSearch" class="search-input" type="search" placeholder="Search themes...">
+    </div>
+    <div class="top-right"></div>
+  </div>
+
   <!-- Profile Menu (Pages 1 & 2 only) -->
   <div id="profileShell" class="profile-shell" aria-hidden="true">
     <button id="profileBtn" class="profile-btn" aria-haspopup="true" aria-expanded="false">
@@ -90,9 +102,27 @@
   <div id="toastContainer" class="toast-container"></div>
 
   <!-- ============================= -->
+  <!-- HOME: Welcome -->
+  <!-- ============================= -->
+  <div id="pageHome" class="page active">
+    <div class="page-content home-content">
+      <img src="images/logo.png" alt="Ambient Timer" class="home-logo">
+      <div id="homeGuest" class="home-actions">
+        <button id="homeTimerBtn" class="primary-btn">Timer</button>
+        <button id="homeSignupBtn" class="ghost-btn">Create account</button>
+      </div>
+      <div id="homeAuthed" class="home-welcome">
+        <div class="welcome-text">Welcome back,</div>
+        <div id="homeUsername" class="welcome-name">Friend</div>
+        <button id="homeGoThemesBtn" class="primary-btn">Go to theme selection</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================= -->
   <!-- PAGE 1: Background Selection -->
   <!-- ============================= -->
-  <div id="page1" class="page active">
+  <div id="page1" class="page">
     <div class="page-content">
       <h1>Choose Your Atmosphere</h1>
 
@@ -100,38 +130,73 @@
       <div class="grid default-grid" id="defaultThemes">
 
         <div class="thumb"
-          onclick="chooseBg('videos/one.mp4')"
+          data-name="Yamato"
+          data-src="videos/one.mp4"
+          data-type="video"
           style="background-image:url('images/one.png')">
+          <div class="thumb-meta">
+            <span class="thumb-name">Yamato</span>
+          </div>
         </div>
 
         <div class="thumb"
-          onclick="chooseBg('videos/two.mp4')"
+          data-name="Minecraft Cabin"
+          data-src="videos/two.mp4"
+          data-type="video"
           style="background-image:url('images/two.png')">
+          <div class="thumb-meta">
+            <span class="thumb-name">Minecraft Cabin</span>
+          </div>
         </div>
 
         <div class="thumb"
-          onclick="chooseBg('videos/three.mp4')"
+          data-name="Cabin in Rain"
+          data-src="videos/three.mp4"
+          data-type="video"
           style="background-image:url('images/three.png')">
+          <div class="thumb-meta">
+            <span class="thumb-name">Cabin in Rain</span>
+          </div>
         </div>
 
         <div class="thumb"
-          onclick="chooseBg('videos/four.mp4')"
+          data-name="A story train ride"
+          data-src="videos/four.mp4"
+          data-type="video"
           style="background-image:url('images/four.png')">
+          <div class="thumb-meta">
+            <span class="thumb-name">A story train ride</span>
+          </div>
         </div>
 
         <div class="thumb"
-          onclick="chooseBg('videos/five.mp4')"
+          data-name="Dark Atmospheric Room"
+          data-src="videos/five.mp4"
+          data-type="video"
           style="background-image:url('images/five.png')">
+          <div class="thumb-meta">
+            <span class="thumb-name">Dark Atmospheric Room</span>
+          </div>
         </div>
 
         <div class="thumb"
-          onclick="chooseBg('videos/six.mp4')"
+          data-name="Toji Fushigoro"
+          data-src="videos/six.mp4"
+          data-type="video"
           style="background-image:url('images/six.png')">
+          <div class="thumb-meta">
+            <span class="thumb-name">Toji Fushigoro</span>
+          </div>
         </div>
 
         <div class="thumb"
-          onclick="chooseBg('videos/seven.mp4')"
+          data-name="Reze Flowerbed"
+          data-src="videos/seven.mp4"
+          data-type="video"
           style="background-image:url('images/seven.png')">
+          <div class="thumb-meta">
+            <span class="thumb-name">Reze Flowerbed</span>
+          </div>
         </div>
 
       </div>
@@ -148,8 +213,8 @@
 
       <h2 class="section-title">Online Themes</h2>
       <div class="controls">
-        <input id="onlineUrlInput" class="url-input" type="url"
-          placeholder="Paste an image or video URL (.jpg, .png, .mp4)">
+      <input id="onlineUrlInput" class="url-input" type="text"
+        placeholder="Paste an image or video URL (.jpg, .png, .mp4)">
         <button id="addOnlineThemeBtn" class="add-btn">Add URL</button>
       </div>
       <div class="grid auto-grid" id="onlineThemesGrid"></div>
@@ -235,6 +300,7 @@
   <!-- PAGE 3: Timer Display -->
   <!-- ============================= -->
   <div id="timerBox" class="page">
+    <button id="timerBackBtn" class="back-btn">Go back</button>
     <div id="timerDisplay">00:00</div>
     <p class="hint">Click Timer or Spacebar = Pause</p>
   </div>
