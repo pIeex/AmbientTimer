@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Ambient Luxe Timer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+  <!-- Hidden Canvas (optional future use) -->
+  <canvas id="brightnessCanvas" style="display:none;"></canvas>
+
+  <!-- Background Video -->
+  <video id="bgVideo" autoplay loop></video>
+
+  <!-- Background Image Layer -->
+  <div id="bgImage" style="background-image:url('images/bg.jpg')"></div>
+
+  <!-- Mute Button -->
+  <button id="muteBtn">🔊</button>
+
+  <!-- ============================= -->
+  <!-- PAGE 1: Background Selection -->
+  <!-- ============================= -->
+  <div id="page1" class="page active">
+    <h1>Choose Your Atmosphere</h1>
+
+    <div class="grid">
+
+      <div class="thumb"
+        onclick="chooseBg('videos/one.mp4')"
+        style="background-image:url('images/one.png')">
+      </div>
+
+      <div class="thumb"
+        onclick="chooseBg('videos/two.mp4')"
+        style="background-image:url('images/two.png')">
+      </div>
+
+      <div class="thumb"
+        onclick="chooseBg('videos/three.mp4')"
+        style="background-image:url('images/three.png')">
+      </div>
+
+      <div class="thumb"
+        onclick="chooseBg('videos/four.mp4')"
+        style="background-image:url('images/four.png')">
+      </div>
+
+      <div class="thumb"
+        onclick="chooseBg('videos/five.mp4')"
+        style="background-image:url('images/five.png')">
+      </div>
+
+      <div class="thumb"
+        onclick="chooseBg('videos/six.mp4')"
+        style="background-image:url('images/six.png')">
+      </div>
+
+      <div class="thumb"
+        onclick="chooseBg('videos/seven.mp4')"
+        style="background-image:url('images/seven.png')">
+      </div>
+
+    </div>
+
+    <label class="upload">
+      Upload Your Own Background
+      <input type="file"
+        accept="video/mp4,image/png,image/jpeg"
+        onchange="uploadBackground(event)">
+    </label>
+  </div>
+
+  <!-- ============================= -->
+  <!-- PAGE 2: Time Selection -->
+  <!-- ============================= -->
+  <div id="page2" class="page">
+    <h1>Set Your Time</h1>
+
+    <div class="time-grid">
+      <button onclick="startTimer(60)">1 Hour</button>
+      <button onclick="startTimer(90)">1h 30m</button>
+      <button onclick="startTimer(120)">2 Hours</button>
+      <button onclick="startTimer(150)">2h 30m</button>
+    </div>
+
+    <!-- Custom Time -->
+    <div class="custom">
+      <p>Or set your own:</p>
+
+      <div class="custom-inputs">
+        <input id="customHours" type="number" placeholder="Hours" min="0">
+        <input id="customMinutes" type="number" placeholder="Minutes" min="0">
+        <input id="customSeconds" type="number" placeholder="Seconds" min="0">
+      </div>
+
+      <button class="startCustom" onclick="startCustomTimer()">Start</button>
+    </div>
+  </div>
+
+  <!-- ============================= -->
+  <!-- PAGE 3: Timer Display -->
+  <!-- ============================= -->
+  <div id="timerBox" class="page">
+    <div id="timerDisplay">00:00</div>
+    <p class="hint">Click Timer or Spacebar = Pause</p>
+  </div>
+
+  <!-- Script -->
+  <script src="script.js"></script>
+
+</body>
+</html>
