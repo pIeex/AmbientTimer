@@ -15,8 +15,12 @@
   <video id="bgVideoA" class="bg-video" autoplay muted playsinline preload="auto"></video>
   <video id="bgVideoB" class="bg-video" autoplay muted playsinline preload="auto"></video>
 
-  <!-- Background Image Layer -->
-  <div id="bgImage" style="background-image:url('images/bg.jpg')"></div>
+  <!-- Background Image Layers -->
+  <div id="bgImageA" class="bg-image active" style="background-image:url('images/bg.jpg')"></div>
+  <div id="bgImageB" class="bg-image"></div>
+
+  <!-- Page 1 Tint -->
+  <div id="pageTint" class="page-tint"></div>
 
   <!-- Confirm Delete Modal -->
   <div id="confirmOverlay" class="confirm-overlay" aria-hidden="true">
@@ -34,7 +38,6 @@
   <div id="topBar" class="top-bar" aria-hidden="true">
     <div class="top-left">
       <img src="images/logo.png" alt="Ambient Timer" class="logo-img">
-      <span class="logo-text">Ambient Timer</span>
     </div>
     <div class="top-center">
       <input id="themeSearch" class="search-input" type="search" placeholder="Search themes...">
@@ -78,7 +81,7 @@
       <div class="auth-body">
         <div class="field">
           <label for="authEmail">Email</label>
-          <input id="authEmail" type="email" placeholder="you@email.com">
+          <input id="authEmail" type="email" placeholder="you@email.com" autocomplete="email">
         </div>
         <div class="field auth-signup-only">
           <label for="authDisplayName">Display name</label>
@@ -86,11 +89,11 @@
         </div>
         <div class="field">
           <label for="authPassword">Password</label>
-          <input id="authPassword" type="password" placeholder="••••••••">
+          <input id="authPassword" type="password" placeholder="••••••••" autocomplete="current-password">
         </div>
         <div class="field auth-signup-only">
           <label for="authPasswordConfirm">Confirm password</label>
-          <input id="authPasswordConfirm" type="password" placeholder="••••••••">
+          <input id="authPasswordConfirm" type="password" placeholder="••••••••" autocomplete="new-password">
         </div>
         <button id="authSubmitBtn" class="primary-btn">Continue</button>
         <p id="authMessage" class="auth-message"></p>
@@ -125,6 +128,7 @@
   <div id="page1" class="page">
     <div class="page-content">
       <h1>Choose Your Atmosphere</h1>
+      <h2 id="searchHeader" class="section-title search-title">Search:</h2>
 
       <h2 class="section-title">Built-in Themes</h2>
       <div class="grid default-grid" id="defaultThemes">
@@ -226,6 +230,7 @@
   <!-- ============================= -->
   <div id="page2" class="page">
     <div class="page-content">
+      <button id="timeBackBtn" class="back-btn">Go back</button>
       <h1>Set Your Time</h1>
 
       <div class="time-grid">
@@ -302,7 +307,6 @@
   <div id="timerBox" class="page">
     <button id="timerBackBtn" class="back-btn">Go back</button>
     <div id="timerDisplay">00:00</div>
-    <p class="hint">Click Timer or Spacebar = Pause</p>
   </div>
 
   <!-- Script -->
