@@ -1417,12 +1417,10 @@ async function handleAuthSubmit() {
 
 async function signInWithGoogle() {
   if (!supabaseClient) return;
-  const redirectTo = window.location.origin && window.location.origin !== "null"
-    ? window.location.origin
-    : undefined;
+  const redirectTo = "https://pieex.github.io/AmbientTimer/";
   const { error } = await supabaseClient.auth.signInWithOAuth({
     provider: "google",
-    options: redirectTo ? { redirectTo } : undefined
+    options: { redirectTo }
   });
   if (error) {
     setMessage(authMessage, error.message, true);
