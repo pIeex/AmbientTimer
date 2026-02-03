@@ -22,6 +22,9 @@
   <!-- Page 1 Tint -->
   <div id="pageTint" class="page-tint"></div>
 
+  <!-- Alarm Sound -->
+  <audio id="alarmSound" src="assests/alarm.mp3" preload="auto"></audio>
+
   <!-- Confirm Delete Modal -->
   <div id="confirmOverlay" class="confirm-overlay" aria-hidden="true">
     <div class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
@@ -164,12 +167,12 @@
         </div>
 
         <div class="thumb"
-          data-name="A story train ride"
+          data-name="A stormy train ride"
           data-src="videos/four.mp4"
           data-type="video"
           style="background-image:url('images/four.png')">
           <div class="thumb-meta">
-            <span class="thumb-name">A story train ride</span>
+            <span class="thumb-name">A stormy train ride</span>
           </div>
         </div>
 
@@ -205,23 +208,53 @@
 
       </div>
 
-      <h2 class="section-title">Your Themes</h2>
-      <div class="controls">
-        <label class="upload">
-          Upload From Device
-          <input id="localUploadInput" type="file"
-            accept="video/mp4,image/png,image/jpeg">
-        </label>
+      <div class="section-panel panel-stack">
+        <div class="panel-block">
+          <h2 class="section-title">Your Themes</h2>
+        <div class="controls panel-controls">
+          <div class="controls-main">
+            <div class="upload-group">
+              <label class="upload">
+                Upload Files
+                <input id="localUploadInput" type="file"
+                  accept="video/mp4,image/png,image/jpeg"
+                  multiple>
+              </label>
+              <div class="upload-dropdown">
+                <button id="uploadMenuBtn" class="add-btn mini">▾</button>
+                <div id="uploadMenu" class="upload-menu">
+                  <button id="uploadFolderBtn" class="menu-btn">Upload Folder</button>
+                </div>
+              </div>
+              <input id="localFolderInput" type="file"
+                accept="video/mp4,image/png,image/jpeg"
+                multiple webkitdirectory directory hidden>
+            </div>
+          </div>
+          <div class="controls-side">
+            <button id="localMultiBtn" class="add-btn multi-btn">Multi-select</button>
+            <button id="localDeleteBtn" class="add-btn danger delete-selected" disabled>Delete selected</button>
+          </div>
+        </div>
+        <div class="grid auto-grid" id="localThemesGrid"></div>
       </div>
-      <div class="grid auto-grid" id="localThemesGrid"></div>
 
-      <h2 class="section-title">Online Themes</h2>
-      <div class="controls">
-      <input id="onlineUrlInput" class="url-input" type="text"
-        placeholder="Paste an image or video URL (.jpg, .png, .mp4)">
-        <button id="addOnlineThemeBtn" class="add-btn">Add URL</button>
+        <div class="panel-block">
+          <h2 class="section-title">Online Themes</h2>
+        <div class="controls panel-controls">
+          <div class="controls-main">
+            <input id="onlineUrlInput" class="url-input" type="text"
+              placeholder="Paste an image or video URL (.jpg, .png, .mp4)">
+            <button id="addOnlineThemeBtn" class="add-btn">Add URL</button>
+          </div>
+          <div class="controls-side">
+            <button id="onlineMultiBtn" class="add-btn multi-btn">Multi-select</button>
+            <button id="onlineDeleteBtn" class="add-btn danger delete-selected" disabled>Delete selected</button>
+          </div>
+        </div>
+        <div class="grid auto-grid" id="onlineThemesGrid"></div>
       </div>
-      <div class="grid auto-grid" id="onlineThemesGrid"></div>
+      </div>
     </div>
   </div>
 
