@@ -88,7 +88,7 @@ body {
 
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   align-items: center;
 
   padding: 64px clamp(24px, 6vw, 80px);
@@ -98,6 +98,7 @@ body {
   visibility: hidden;
   transition: opacity 0.7s ease;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .page.active {
@@ -111,6 +112,7 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 24px;
+  padding-bottom: 48px;
 }
 
 /* ================================
@@ -183,20 +185,25 @@ h1 {
 .grid {
   display: grid;
   gap: 22px;
+  --card-width: 220px;
+  grid-template-columns: repeat(auto-fill, var(--card-width));
+  justify-content: center;
   width: min(96%, 1200px);
 }
 
 .grid.default-grid {
-  grid-template-columns: repeat(4, minmax(200px, 1fr));
+  grid-template-columns: repeat(4, var(--card-width));
+  width: min(96%, calc(var(--card-width) * 4 + 22px * 3));
 }
 
 .grid.auto-grid {
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, var(--card-width));
 }
 
 @media (max-width: 700px) {
   .grid {
-    grid-template-columns: repeat(2, 1fr);
+    --card-width: 180px;
+    grid-template-columns: repeat(2, var(--card-width));
   }
 }
 
