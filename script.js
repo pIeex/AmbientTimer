@@ -112,6 +112,7 @@ const multiSelect = {
   online: { enabled: false, selected: new Set() }
 };
 let alarmFadeHandler = null;
+let isPreviewMode = false;
 let isForceRestarting = false;
 
 /* ================================
@@ -168,6 +169,7 @@ function chooseBg(src) {
 }
 
 function applyTheme(theme, { previewOnly = false } = {}) {
+  isPreviewMode = previewOnly;
   if (previewOnly) {
     if (currentPreviewTheme.src === theme.src && currentPreviewTheme.mediaType === theme.mediaType) {
       return;
@@ -639,21 +641,6 @@ window.addEventListener("resize", () => {
   fitActivePage();
 });
 
-document.addEventListener("mousemove", (e) => {
-  const page1 = document.getElementById("page1");
-  if (!page1 || !page1.classList.contains("active")) return;
-  const hovered = e.target.closest?.("#page1 .thumb");
-  if (hovered) {
-    if (hovered !== lastHoveredCard) {
-      lastHoveredCard = hovered;
-      const src = hovered.dataset.src;
-      const mediaType = hovered.dataset.type || (src && src.endsWith(".mp4") ? "video" : "image");
-      applyTheme({ src, mediaType }, { previewOnly: true });
-    }
-  } else if (lastHoveredCard) {
-    lastHoveredCard = null;
-  }
-});
 
 function createImagePreviewFromBlob(blob) {
   return new Promise((resolve, reject) => {
@@ -1858,6 +1845,16 @@ function pauseVideoAfterFade(video) {
 
 function transitionToVideo(src) {
   const targetSrc = normalizeSrc(src);
+  if (currentVideoSrc === targetSrc) {
+    const active = getActiveVideo();
+    if (active && !active.paused) {
+      return;
+    }
+    if (active) {
+      active.play().catch(() => {});
+      return;
+    }
+  }
   currentVideoSrc = targetSrc;
   isCrossfading = false;
 
@@ -1874,7 +1871,10 @@ function transitionToVideo(src) {
   idleVideo.preload = "auto";
   idleVideo.load();
 
+  let didSwitch = false;
   const switchToIdle = () => {
+    if (didSwitch) return;
+    didSwitch = true;
     idleVideo.currentTime = 0;
     idleVideo.play().then(() => {
       setActiveLayer(idleVideo);
@@ -1898,24 +1898,28 @@ function transitionToVideo(src) {
 }
 
 function transitionToImage(src) {
+  const targetSrc = normalizeSrc(src);
+  if (currentPreviewTheme.mediaType === "image" && currentPreviewTheme.src === targetSrc) {
+    return;
+  }
   stopVideoWatchdog();
   bgVideos.forEach(video => {
     setFadeMsForVideo(video, BG_SWITCH_FADE_MS);
     video.classList.remove("active");
     pauseVideoAfterFade(video);
   });
-  startImageFade(src);
+  startImageFade(targetSrc);
 }
 
 function startVideoWatchdog() {
-  if (videoWatchdog) return;
+  if (videoWatchdog || isPreviewMode) return;
   videoWatchdog = setInterval(() => {
     const active = getActiveVideo();
     if (!active || !currentVideoSrc) return;
     const isStuck = Number.isFinite(active.currentTime) && Number.isFinite(active.duration)
       ? active.currentTime >= active.duration - 0.08
       : false;
-    if ((active.ended || isStuck) && !isForceRestarting) {
+    if ((active.ended || isStuck) && !isForceRestarting && !isPreviewMode) {
       forceSeamlessRestart();
     }
   }, 1000);
@@ -1945,7 +1949,10 @@ function forceSeamlessRestart() {
   idle.load();
   idle.currentTime = 0.05;
 
+  let didSwap = false;
   const swap = () => {
+    if (didSwap) return;
+    didSwap = true;
     idle.play().then(() => {
       setActiveLayer(idle);
       setTimeout(() => {
