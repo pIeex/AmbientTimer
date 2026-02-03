@@ -11,14 +11,24 @@
   <!-- Hidden Canvas (optional future use) -->
   <canvas id="brightnessCanvas" style="display:none;"></canvas>
 
-  <!-- Background Video -->
-  <video id="bgVideo" autoplay loop></video>
+  <!-- Background Video (dual-layer for seamless crossfade) -->
+  <video id="bgVideoA" class="bg-video" autoplay muted playsinline preload="auto"></video>
+  <video id="bgVideoB" class="bg-video" autoplay muted playsinline preload="auto"></video>
 
   <!-- Background Image Layer -->
   <div id="bgImage" style="background-image:url('images/bg.jpg')"></div>
 
-  <!-- Mute Button -->
-  <button id="muteBtn">🔊</button>
+  <!-- Confirm Delete Modal -->
+  <div id="confirmOverlay" class="confirm-overlay" aria-hidden="true">
+    <div class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <h3 id="confirmTitle">Delete theme?</h3>
+      <p id="confirmMessage">This cannot be undone.</p>
+      <div class="confirm-actions">
+        <button id="confirmCancel" class="confirm-btn ghost">Cancel</button>
+        <button id="confirmOk" class="confirm-btn danger">Delete</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ============================= -->
   <!-- PAGE 1: Background Selection -->

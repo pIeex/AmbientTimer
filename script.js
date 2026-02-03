@@ -6,21 +6,33 @@ let remainingSeconds = 0;
 let timerInterval = null;
 let paused = false;
 
-const bgVideo = document.getElementById("bgVideo");
+const bgVideoA = document.getElementById("bgVideoA");
+const bgVideoB = document.getElementById("bgVideoB");
 const bgImage = document.getElementById("bgImage");
 const timerDisplay = document.getElementById("timerDisplay");
-const muteBtn = document.getElementById("muteBtn");
 const localUploadInput = document.getElementById("localUploadInput");
 const localThemesGrid = document.getElementById("localThemesGrid");
 const onlineThemesGrid = document.getElementById("onlineThemesGrid");
 const onlineUrlInput = document.getElementById("onlineUrlInput");
 const addOnlineThemeBtn = document.getElementById("addOnlineThemeBtn");
+const confirmOverlay = document.getElementById("confirmOverlay");
+const confirmTitle = document.getElementById("confirmTitle");
+const confirmMessage = document.getElementById("confirmMessage");
+const confirmCancel = document.getElementById("confirmCancel");
+const confirmOk = document.getElementById("confirmOk");
 
 const LOCAL_DB_NAME = "ambientTimerThemes";
 const LOCAL_STORE_NAME = "localThemes";
 const ONLINE_STORAGE_KEY = "ambientTimerOnlineThemes";
 
 const localObjectUrls = new Map();
+const bgVideos = [bgVideoA, bgVideoB];
+const VIDEO_LOOP_FADE_MS = 900;
+const VIDEO_LOOP_LEAD_SEC = Math.max(0.2, VIDEO_LOOP_FADE_MS / 1000 + 0.05);
+
+let activeVideoIndex = 0;
+let isCrossfading = false;
+let currentVideoSrc = "";
 
 /* ================================
    PAGE CONTROL (Bulletproof)
@@ -46,17 +58,17 @@ function chooseBg(src) {
 function applyTheme(theme) {
   if (theme.mediaType === "video") {
     bgImage.style.display = "none";
-    bgVideo.style.display = "block";
-    bgVideo.style.zIndex = "1";
-    bgVideo.src = theme.src;
-
-    bgVideo.muted = false;
-    bgVideo.volume = 0.9;
-
-    bgVideo.load();
-    bgVideo.play().catch(() => {});
+    bgVideos.forEach(video => {
+      video.style.display = "block";
+      video.style.zIndex = "1";
+    });
+    startSeamlessVideoLoop(theme.src);
   } else {
-    bgVideo.style.display = "none";
+    bgVideos.forEach(video => {
+      video.pause();
+      video.classList.remove("active");
+      video.style.display = "none";
+    });
     bgImage.style.display = "block";
     bgImage.style.backgroundImage = `url(${theme.src})`;
   }
@@ -158,7 +170,10 @@ function renderThemeCard(theme, container, options) {
     del.textContent = "Delete";
     del.addEventListener("click", async (e) => {
       e.stopPropagation();
-      const ok = confirm("Delete this theme? This cannot be undone.");
+      const ok = await openConfirm({
+        title: "Delete theme?",
+        message: "This cannot be undone."
+      });
       if (!ok) return;
       await options.onDelete(theme);
     });
@@ -390,6 +405,44 @@ function initThemeLibrary() {
 initThemeLibrary();
 
 /* ================================
+   CONFIRM MODAL
+   ================================ */
+
+function openConfirm({ title, message }) {
+  return new Promise((resolve) => {
+    if (!confirmOverlay) return resolve(true);
+    confirmTitle.textContent = title || "Confirm";
+    confirmMessage.textContent = message || "";
+    confirmOverlay.classList.add("active");
+    confirmOverlay.setAttribute("aria-hidden", "false");
+
+    const cleanup = (result) => {
+      confirmOverlay.classList.remove("active");
+      confirmOverlay.setAttribute("aria-hidden", "true");
+      confirmCancel.removeEventListener("click", onCancel);
+      confirmOk.removeEventListener("click", onOk);
+      confirmOverlay.removeEventListener("click", onOverlay);
+      document.removeEventListener("keydown", onKeydown);
+      resolve(result);
+    };
+
+    const onCancel = () => cleanup(false);
+    const onOk = () => cleanup(true);
+    const onOverlay = (e) => {
+      if (e.target === confirmOverlay) cleanup(false);
+    };
+    const onKeydown = (e) => {
+      if (e.key === "Escape") cleanup(false);
+    };
+
+    confirmCancel.addEventListener("click", onCancel);
+    confirmOk.addEventListener("click", onOk);
+    confirmOverlay.addEventListener("click", onOverlay);
+    document.addEventListener("keydown", onKeydown);
+  });
+}
+
+/* ================================
    TIMER STARTERS
    ================================ */
 
@@ -486,15 +539,86 @@ document.addEventListener("keydown", (e) => {
 });
 
 /* ================================
-   MUTE BUTTON
+   SEAMLESS VIDEO LOOPING
    ================================ */
 
-muteBtn.addEventListener("click", () => {
-  bgVideo.muted = !bgVideo.muted;
-  muteBtn.textContent = bgVideo.muted ? "🔇" : "🔊";
-});
+function initVideoElements() {
+  bgVideos.forEach(video => {
+    if (!video) return;
+    video.muted = true;
+    video.volume = 0;
+    video.loop = false;
+    video.playsInline = true;
+    video.addEventListener("timeupdate", handleVideoTimeUpdate);
+  });
+}
 
-/* Enable audio after first click (browser rule) */
-document.addEventListener("click", () => {
-  bgVideo.play().catch(() => {});
-}, { once: true });
+function getActiveVideo() {
+  return bgVideos[activeVideoIndex];
+}
+
+function getIdleVideo() {
+  return bgVideos[1 - activeVideoIndex];
+}
+
+function setActiveLayer(active) {
+  bgVideos.forEach(video => {
+    video.classList.toggle("active", video === active);
+  });
+}
+
+function prepareVideo(video, src) {
+  video.src = src;
+  video.muted = true;
+  video.volume = 0;
+  video.loop = false;
+  video.preload = "auto";
+  video.load();
+}
+
+function startSeamlessVideoLoop(src) {
+  currentVideoSrc = src;
+  isCrossfading = false;
+
+  const active = getActiveVideo();
+  const idle = getIdleVideo();
+
+  prepareVideo(active, src);
+  prepareVideo(idle, src);
+
+  active.currentTime = 0;
+  active.play().catch(() => {});
+  idle.pause();
+  idle.currentTime = 0;
+
+  setActiveLayer(active);
+}
+
+function handleVideoTimeUpdate(e) {
+  const video = e.currentTarget;
+  if (video !== getActiveVideo()) return;
+  if (isCrossfading || video.src !== currentVideoSrc) return;
+
+  const duration = video.duration;
+  if (!Number.isFinite(duration) || duration <= 0) return;
+
+  const remaining = duration - video.currentTime;
+  if (remaining > VIDEO_LOOP_LEAD_SEC) return;
+
+  isCrossfading = true;
+  const idle = getIdleVideo();
+
+  idle.currentTime = 0;
+  idle.play().catch(() => {});
+  setActiveLayer(idle);
+
+  const previousActive = video;
+  setTimeout(() => {
+    previousActive.pause();
+    previousActive.currentTime = 0;
+    activeVideoIndex = 1 - activeVideoIndex;
+    isCrossfading = false;
+  }, VIDEO_LOOP_FADE_MS + 40);
+}
+
+initVideoElements();
