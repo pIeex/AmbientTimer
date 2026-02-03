@@ -59,6 +59,7 @@ const authEmail = document.getElementById("authEmail");
 const authDisplayName = document.getElementById("authDisplayName");
 const authPassword = document.getElementById("authPassword");
 const authPasswordConfirm = document.getElementById("authPasswordConfirm");
+const authGoogleBtn = document.getElementById("authGoogleBtn");
 const authSubmitBtn = document.getElementById("authSubmitBtn");
 const authMessage = document.getElementById("authMessage");
 const toastContainer = document.getElementById("toastContainer");
@@ -68,8 +69,11 @@ const settingsAvatarFallback = document.getElementById("settingsAvatarFallback")
 const settingsAvatarInput = document.getElementById("settingsAvatarInput");
 const settingsDisplayName = document.getElementById("settingsDisplayName");
 const settingsEmail = document.getElementById("settingsEmail");
-const settingsPassword = document.getElementById("settingsPassword");
+const settingsPasswordBtn = document.getElementById("settingsPasswordBtn");
+const settingsPasswordLabel = document.getElementById("settingsPasswordLabel");
+const settingsPasswordHint = document.getElementById("settingsPasswordHint");
 const settingsSaveBtn = document.getElementById("settingsSaveBtn");
+const settingsDeleteBtn = document.getElementById("settingsDeleteBtn");
 const settingsMessage = document.getElementById("settingsMessage");
 
 const LOCAL_DB_NAME = "ambientTimerThemes";
@@ -191,8 +195,8 @@ function applyTheme(theme, { previewOnly = false } = {}) {
 
 function getMediaTypeFromUrl(url) {
   const clean = url.split("?")[0].toLowerCase();
-  if (clean.endsWith(".mp4")) return "video";
-  if (clean.endsWith(".png") || clean.endsWith(".jpg") || clean.endsWith(".jpeg")) return "image";
+  if (clean.includes(".mp4")) return "video";
+  if (clean.includes(".png") || clean.includes(".jpg") || clean.includes(".jpeg")) return "image";
   return null;
 }
 
@@ -997,6 +1001,9 @@ async function renderOnlineTheme(theme) {
       preview = theme.url;
     } else {
       preview = await captureVideoFrame(theme.url);
+      if (!preview) {
+        preview = theme.url;
+      }
     }
   }
   const name = theme.name || deriveNameFromUrl(theme.url);
@@ -1340,6 +1347,12 @@ function setAuthMode(mode) {
   document.querySelectorAll(".auth-signup-only").forEach(el => {
     el.style.display = isSignup ? "grid" : "none";
   });
+  if (authPassword) {
+    authPassword.autocomplete = isSignup ? "new-password" : "current-password";
+  }
+  if (authPasswordConfirm) {
+    authPasswordConfirm.autocomplete = "new-password";
+  }
   setMessage(authMessage, "", false);
 }
 
@@ -1366,6 +1379,10 @@ async function handleAuthSubmit() {
       setMessage(authMessage, "Passwords do not match.", true);
       return;
     }
+    if (!displayName) {
+      setMessage(authMessage, "Please add a display name.", true);
+      return;
+    }
     const { error } = await supabaseClient.auth.signUp({
       email,
       password,
@@ -1384,12 +1401,36 @@ async function handleAuthSubmit() {
   }
 }
 
+async function signInWithGoogle() {
+  if (!supabaseClient) return;
+  const redirectTo = window.location.origin && window.location.origin !== "null"
+    ? window.location.origin
+    : undefined;
+  const { error } = await supabaseClient.auth.signInWithOAuth({
+    provider: "google",
+    options: redirectTo ? { redirectTo } : undefined
+  });
+  if (error) {
+    setMessage(authMessage, error.message, true);
+  }
+}
+
+async function syncGoogleProfileIfNeeded(user) {
+  if (!supabaseClient || !user) return;
+  const currentName = user.user_metadata?.display_name;
+  const googleName = user.user_metadata?.full_name || user.user_metadata?.name;
+  if (!currentName && googleName) {
+    await supabaseClient.auth.updateUser({ data: { display_name: googleName } });
+  }
+}
+
 function updateProfileUI() {
   const name = currentUser?.user_metadata?.display_name || "Guest";
   const email = currentUser?.email || "Not signed in";
   const avatarUrl = currentUser?.user_metadata?.avatar_url || "";
   const initial = name ? name.charAt(0).toUpperCase() : "A";
   const loggedIn = isLoggedIn();
+  const isOAuth = !!currentUser?.app_metadata?.provider && currentUser.app_metadata.provider !== "email";
 
   if (profileName) profileName.textContent = name;
   if (profileEmail) profileEmail.textContent = email;
@@ -1428,6 +1469,14 @@ function updateProfileUI() {
 
   if (settingsDisplayName) settingsDisplayName.value = name === "Guest" ? "" : name;
   if (settingsEmail) settingsEmail.value = currentUser?.email || "";
+  if (settingsPasswordLabel) {
+    settingsPasswordLabel.textContent = isOAuth ? "Add password" : "Change password";
+  }
+  if (settingsPasswordHint) {
+    settingsPasswordHint.textContent = isOAuth
+      ? "We’ll email you a link to set a password."
+      : "We’ll email you a secure link.";
+  }
 
   if (profileLoginBtn) profileLoginBtn.style.display = loggedIn ? "none" : "block";
   if (profileSignupBtn) profileSignupBtn.style.display = loggedIn ? "none" : "block";
@@ -1460,6 +1509,17 @@ async function initAuth() {
   if (authTabSignup) authTabSignup.addEventListener("click", () => setAuthMode("signup"));
   if (authCloseBtn) authCloseBtn.addEventListener("click", closeAuth);
   if (authSubmitBtn) authSubmitBtn.addEventListener("click", handleAuthSubmit);
+  if (authGoogleBtn) authGoogleBtn.addEventListener("click", signInWithGoogle);
+  if (authPassword && authPasswordConfirm) {
+    const syncConfirm = () => {
+      if (authMode === "signup") {
+        authPasswordConfirm.value = authPassword.value;
+      }
+    };
+    authPassword.addEventListener("input", syncConfirm);
+    authPassword.addEventListener("change", syncConfirm);
+    authPassword.addEventListener("paste", () => setTimeout(syncConfirm, 0));
+  }
 
   if (homeTimerBtn) homeTimerBtn.addEventListener("click", () => transitionTo("page1"));
   if (homeSignupBtn) homeSignupBtn.addEventListener("click", () => openAuth("signup"));
@@ -1513,7 +1573,6 @@ async function initAuth() {
       const newName = (settingsDisplayName.value || "").trim();
       if (newName) updates.display_name = newName;
       const newEmail = (settingsEmail.value || "").trim();
-      const newPassword = settingsPassword.value || "";
       const hasMetadata = Object.keys(updates).length > 0;
 
       if (hasMetadata) {
@@ -1522,13 +1581,51 @@ async function initAuth() {
       if (newEmail) {
         await supabaseClient.auth.updateUser({ email: newEmail });
       }
-      if (newPassword) {
-        await supabaseClient.auth.updateUser({ password: newPassword });
-      }
 
       setMessage(settingsMessage, "Profile updated.", false);
-      settingsPassword.value = "";
       await refreshAuthState();
+    });
+  }
+
+  if (settingsPasswordBtn) {
+    settingsPasswordBtn.addEventListener("click", async () => {
+      if (!supabaseClient || !currentUser) return;
+      const email = currentUser.email;
+      if (!email) return;
+      const { error } = await supabaseClient.auth.resetPasswordForEmail(email);
+      setMessage(settingsMessage, error ? error.message : "Password email sent.", !!error);
+    });
+  }
+
+  if (settingsDeleteBtn) {
+    settingsDeleteBtn.addEventListener("click", async () => {
+      if (!supabaseClient || !currentUser) return;
+      const ok1 = await openConfirm({
+        title: "Delete account?",
+        message: "This will remove your account and themes."
+      });
+      if (!ok1) return;
+      const ok2 = await openConfirm({
+        title: "Are you absolutely sure?",
+        message: "This action cannot be undone."
+      });
+      if (!ok2) return;
+      try {
+        const session = await supabaseClient.auth.getSession();
+        const token = session?.data?.session?.access_token;
+        if (!token) throw new Error("No session");
+        await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+          method: "DELETE",
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "apikey": SUPABASE_ANON_KEY
+          }
+        });
+        await supabaseClient.auth.signOut();
+        showPage("pageHome");
+      } catch (err) {
+        setMessage(settingsMessage, "Unable to delete account right now.", true);
+      }
     });
   }
 
@@ -1567,6 +1664,7 @@ async function refreshAuthState() {
   if (!supabaseClient) return;
   const { data } = await supabaseClient.auth.getSession();
   currentUser = data?.session?.user || null;
+  await syncGoogleProfileIfNeeded(currentUser);
   updateProfileUI();
   await loadCloudThemes();
   loadAndRenderLocalThemes();

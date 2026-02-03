@@ -84,20 +84,22 @@
       <div class="auth-body">
         <div class="field">
           <label for="authEmail">Email</label>
-          <input id="authEmail" type="email" placeholder="you@email.com" autocomplete="email">
+          <input id="authEmail" name="email" type="email" placeholder="you@email.com" autocomplete="username" autocapitalize="none" spellcheck="false">
         </div>
         <div class="field auth-signup-only">
           <label for="authDisplayName">Display name</label>
-          <input id="authDisplayName" type="text" placeholder="Your name">
+          <input id="authDisplayName" name="name" type="text" placeholder="Your name" autocomplete="name">
         </div>
         <div class="field">
           <label for="authPassword">Password</label>
-          <input id="authPassword" type="password" placeholder="••••••••" autocomplete="current-password">
+          <input id="authPassword" name="password" type="password" placeholder="••••••••" autocomplete="current-password">
         </div>
         <div class="field auth-signup-only">
           <label for="authPasswordConfirm">Confirm password</label>
-          <input id="authPasswordConfirm" type="password" placeholder="••••••••" autocomplete="new-password">
+          <input id="authPasswordConfirm" name="password_confirm" type="password" placeholder="••••••••" autocomplete="new-password">
         </div>
+        <div class="auth-or">or</div>
+        <button id="authGoogleBtn" class="google-btn">Continue with Google</button>
         <button id="authSubmitBtn" class="primary-btn">Continue</button>
         <p id="authMessage" class="auth-message"></p>
       </div>
@@ -323,12 +325,14 @@
             <input id="settingsEmail" type="email" placeholder="you@email.com">
           </div>
           <div class="field">
-            <label for="settingsPassword">New password</label>
-            <input id="settingsPassword" type="password" placeholder="••••••••">
+            <label id="settingsPasswordLabel">Change password</label>
+            <button id="settingsPasswordBtn" class="add-btn">Send password email</button>
+            <p id="settingsPasswordHint" class="muted">We’ll email you a secure link.</p>
           </div>
         </div>
 
         <button id="settingsSaveBtn" class="primary-btn">Save changes</button>
+        <button id="settingsDeleteBtn" class="add-btn danger">Delete account</button>
         <p id="settingsMessage" class="auth-message"></p>
       </div>
     </div>

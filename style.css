@@ -867,6 +867,26 @@ body[data-page="page2"] .profile-shell {
   gap: 12px;
 }
 
+.auth-or {
+  text-align: center;
+  font-size: 12px;
+  opacity: 0.6;
+  margin: 2px 0;
+}
+
+.google-btn {
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.08);
+  color: rgba(245,245,245,0.95);
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.google-btn:hover {
+  background: rgba(255,255,255,0.16);
+}
 .auth-signup-only {
   display: none;
 }
