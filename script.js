@@ -29,6 +29,16 @@ const confirmCancel = document.getElementById("confirmCancel");
 const confirmOk = document.getElementById("confirmOk");
 const topBar = document.getElementById("topBar");
 const themeSearch = document.getElementById("themeSearch");
+const burgerBtn = document.getElementById("burgerBtn");
+const mobileMenu = document.getElementById("mobileMenu");
+const mobileMenuClose = document.getElementById("mobileMenuClose");
+const mobileSearchInput = document.getElementById("mobileSearchInput");
+const mobileSearchWrap = document.getElementById("mobileSearchWrap");
+const mobileMenuHomeBtn = document.getElementById("mobileMenuHomeBtn");
+const mobileMenuSettingsBtn = document.getElementById("mobileMenuSettingsBtn");
+const mobileMenuLoginBtn = document.getElementById("mobileMenuLoginBtn");
+const mobileMenuSignupBtn = document.getElementById("mobileMenuSignupBtn");
+const mobileMenuLogoutBtn = document.getElementById("mobileMenuLogoutBtn");
 const homeTimerBtn = document.getElementById("homeTimerBtn");
 const homeSignupBtn = document.getElementById("homeSignupBtn");
 const homeGoThemesBtn = document.getElementById("homeGoThemesBtn");
@@ -118,6 +128,18 @@ const multiSelect = {
 let alarmFadeHandler = null;
 let isPreviewMode = false;
 let isForceRestarting = false;
+const hoverQuery = window.matchMedia("(hover: hover) and (pointer: fine)");
+const touchQuery = window.matchMedia("(hover: none), (pointer: coarse)");
+let supportsHover = hoverQuery.matches;
+let isTouchDevice = touchQuery.matches;
+document.body.classList.toggle("touch", isTouchDevice);
+hoverQuery.addEventListener("change", (e) => {
+  supportsHover = e.matches;
+});
+touchQuery.addEventListener("change", (e) => {
+  isTouchDevice = e.matches;
+  document.body.classList.toggle("touch", isTouchDevice);
+});
 
 /* ================================
    PAGE CONTROL (Bulletproof)
@@ -139,6 +161,7 @@ function showPage(id) {
   } else if (["page1", "page2", "timerBox", "pageSettings"].includes(id)) {
     localStorage.setItem("ambientLastPage", "selector");
   }
+  updateMobileMenuState();
   requestAnimationFrame(() => fitActivePage());
 }
 
@@ -161,6 +184,34 @@ function transitionTo(id) {
     showPage(id);
     document.body.classList.remove("tint-exit");
   }, PAGE_FADE_MS);
+}
+
+function openMobileMenu() {
+  if (!mobileMenu) return;
+  mobileMenu.classList.add("active");
+  mobileMenu.setAttribute("aria-hidden", "false");
+  if (mobileSearchInput && themeSearch) {
+    mobileSearchInput.value = themeSearch.value || "";
+  }
+  updateMobileMenuState();
+}
+
+function closeMobileMenu() {
+  if (!mobileMenu) return;
+  mobileMenu.classList.remove("active");
+  mobileMenu.setAttribute("aria-hidden", "true");
+}
+
+function updateMobileMenuState() {
+  if (!mobileMenu) return;
+  const loggedIn = isLoggedIn();
+  if (mobileMenuSettingsBtn) mobileMenuSettingsBtn.style.display = loggedIn ? "block" : "none";
+  if (mobileMenuLogoutBtn) mobileMenuLogoutBtn.style.display = loggedIn ? "block" : "none";
+  if (mobileMenuLoginBtn) mobileMenuLoginBtn.style.display = loggedIn ? "none" : "block";
+  if (mobileMenuSignupBtn) mobileMenuSignupBtn.style.display = loggedIn ? "none" : "block";
+  if (mobileSearchWrap) {
+    mobileSearchWrap.style.display = document.body.dataset.page === "page1" ? "block" : "none";
+  }
 }
 
 /* ================================
@@ -310,6 +361,67 @@ function setOnlineThemes(list) {
   localStorage.setItem(ONLINE_STORAGE_KEY, JSON.stringify(list));
 }
 
+function attachThemeInteractions(card, theme, onSelect) {
+  let blockNextClick = false;
+  let touchTimer = null;
+
+  card.addEventListener("click", () => {
+    if (isTouchDevice && blockNextClick) {
+      blockNextClick = false;
+      return;
+    }
+    onSelect();
+  });
+
+  if (supportsHover) {
+    card.addEventListener("mouseenter", () => {
+      clearTimeout(hoverResetTimer);
+      clearTimeout(hoverPreviewTimer);
+      lastHoveredCard = card;
+      hoverPreviewTimer = setTimeout(() => {
+        if (lastHoveredCard === card) {
+          applyTheme(theme, { previewOnly: true });
+        }
+      }, HOVER_PREVIEW_DELAY_MS);
+    });
+    card.addEventListener("mouseleave", () => scheduleHoverReset());
+  }
+
+  if (isTouchDevice) {
+    const clearTouchTimer = () => {
+      if (touchTimer) {
+        clearTimeout(touchTimer);
+        touchTimer = null;
+      }
+    };
+
+    card.addEventListener("pointerdown", (e) => {
+      if (e.pointerType !== "touch") return;
+      clearTouchTimer();
+      blockNextClick = false;
+      touchTimer = setTimeout(() => {
+        blockNextClick = true;
+        applyTheme(theme, { previewOnly: true });
+      }, HOVER_PREVIEW_DELAY_MS);
+    });
+
+    card.addEventListener("pointerup", (e) => {
+      if (e.pointerType !== "touch") return;
+      clearTouchTimer();
+    });
+
+    card.addEventListener("pointercancel", (e) => {
+      if (e.pointerType !== "touch") return;
+      clearTouchTimer();
+    });
+
+    card.addEventListener("pointerleave", (e) => {
+      if (e.pointerType !== "touch") return;
+      clearTouchTimer();
+    });
+  }
+}
+
 function renderThemeCard(theme, container, options) {
   if (container) {
     const key = theme.id || theme.src || "";
@@ -333,24 +445,13 @@ function renderThemeCard(theme, container, options) {
     card.style.backgroundImage = `url(${theme.preview})`;
   }
 
-  card.addEventListener("click", () => {
+  attachThemeInteractions(card, theme, () => {
     if (options?.group && multiSelect[options.group]?.enabled) {
       toggleSelectCard(card, theme, options.group);
       return;
     }
     applyTheme(theme);
   });
-  card.addEventListener("mouseenter", () => {
-    clearTimeout(hoverResetTimer);
-    clearTimeout(hoverPreviewTimer);
-    lastHoveredCard = card;
-    hoverPreviewTimer = setTimeout(() => {
-      if (lastHoveredCard === card) {
-        applyTheme(theme, { previewOnly: true });
-      }
-    }, HOVER_PREVIEW_DELAY_MS);
-  });
-  card.addEventListener("mouseleave", () => scheduleHoverReset());
 
   const meta = document.createElement("div");
   meta.className = "thumb-meta";
@@ -619,26 +720,32 @@ function initBuiltInThemes() {
     const name = card.dataset.name || "Built-in";
     card.dataset.name = name.toLowerCase();
     const theme = { src, mediaType, name };
-    card.addEventListener("click", () => applyTheme(theme));
-    card.addEventListener("mouseenter", () => {
-      clearTimeout(hoverResetTimer);
-      clearTimeout(hoverPreviewTimer);
-      lastHoveredCard = card;
-      hoverPreviewTimer = setTimeout(() => {
-        if (lastHoveredCard === card) {
-          applyTheme(theme, { previewOnly: true });
-        }
-      }, HOVER_PREVIEW_DELAY_MS);
-    });
-    card.addEventListener("mouseleave", () => scheduleHoverReset());
+    attachThemeInteractions(card, theme, () => applyTheme(theme));
   });
 }
 
 function initSearch() {
-  if (!themeSearch) return;
-  themeSearch.addEventListener("input", (e) => {
-    applySearchFilter(e.target.value);
-  });
+  const syncSearch = (value) => {
+    if (themeSearch && themeSearch.value !== value) {
+      themeSearch.value = value;
+    }
+    if (mobileSearchInput && mobileSearchInput.value !== value) {
+      mobileSearchInput.value = value;
+    }
+    applySearchFilter(value);
+  };
+
+  if (themeSearch) {
+    themeSearch.addEventListener("input", (e) => {
+      syncSearch(e.target.value);
+    });
+  }
+
+  if (mobileSearchInput) {
+    mobileSearchInput.addEventListener("input", (e) => {
+      syncSearch(e.target.value);
+    });
+  }
 }
 
 window.addEventListener("resize", () => {
@@ -1362,7 +1469,14 @@ function setAuthMode(mode) {
     el.style.display = isSignup ? "grid" : "none";
   });
   if (authPassword) {
-    authPassword.autocomplete = isSignup ? "new-password" : "current-password";
+    authPassword.autocomplete = isSignup ? "new-password" : "off";
+    if (!isSignup) {
+      authPassword.setAttribute("data-lpignore", "true");
+      authPassword.setAttribute("data-1p-ignore", "true");
+    } else {
+      authPassword.removeAttribute("data-lpignore");
+      authPassword.removeAttribute("data-1p-ignore");
+    }
   }
   if (authPasswordConfirm) {
     authPasswordConfirm.autocomplete = "new-password";
@@ -1374,6 +1488,25 @@ function setMessage(el, text, isError = false) {
   if (!el) return;
   el.textContent = text;
   el.classList.toggle("error", isError);
+}
+
+async function handleLogout() {
+  if (!supabaseClient) return;
+  if (profileMenu) profileMenu.classList.remove("active");
+  closeMobileMenu();
+  const { error } = await supabaseClient.auth.signOut();
+  if (error) {
+    showToast({
+      message: error.message || "Logout failed.",
+      type: "error",
+      durationMs: 2000
+    });
+    return;
+  }
+  currentUser = null;
+  updateProfileUI();
+  localStorage.setItem("ambientLastPage", "home");
+  transitionTo("pageHome");
 }
 
 async function handleAuthSubmit() {
@@ -1499,6 +1632,7 @@ function updateProfileUI() {
 
   document.body.dataset.auth = loggedIn ? "true" : "false";
   if (homeUsername) homeUsername.textContent = loggedIn ? name : "";
+  updateMobileMenuState();
 }
 
 async function initAuth() {
@@ -1518,6 +1652,31 @@ async function initAuth() {
       goHomeWithFade();
     });
   }
+
+  if (burgerBtn) burgerBtn.addEventListener("click", openMobileMenu);
+  if (mobileMenuClose) mobileMenuClose.addEventListener("click", closeMobileMenu);
+  if (mobileMenu) {
+    mobileMenu.addEventListener("click", (e) => {
+      if (e.target === mobileMenu) closeMobileMenu();
+    });
+  }
+  if (mobileMenuHomeBtn) mobileMenuHomeBtn.addEventListener("click", () => {
+    closeMobileMenu();
+    goHomeWithFade();
+  });
+  if (mobileMenuSettingsBtn) mobileMenuSettingsBtn.addEventListener("click", () => {
+    closeMobileMenu();
+    transitionTo("pageSettings");
+  });
+  if (mobileMenuLoginBtn) mobileMenuLoginBtn.addEventListener("click", () => {
+    closeMobileMenu();
+    openAuth("login");
+  });
+  if (mobileMenuSignupBtn) mobileMenuSignupBtn.addEventListener("click", () => {
+    closeMobileMenu();
+    openAuth("signup");
+  });
+  if (mobileMenuLogoutBtn) mobileMenuLogoutBtn.addEventListener("click", handleLogout);
 
   if (authTabLogin) authTabLogin.addEventListener("click", () => setAuthMode("login"));
   if (authTabSignup) authTabSignup.addEventListener("click", () => setAuthMode("signup"));
@@ -1569,23 +1728,7 @@ async function initAuth() {
     if (profileMenu) profileMenu.classList.remove("active");
     openAuth("signup");
   });
-  if (profileLogoutBtn) profileLogoutBtn.addEventListener("click", async () => {
-    if (!supabaseClient) return;
-    if (profileMenu) profileMenu.classList.remove("active");
-    const { error } = await supabaseClient.auth.signOut();
-    if (error) {
-      showToast({
-        message: error.message || "Logout failed.",
-        type: "error",
-        durationMs: 2000
-      });
-      return;
-    }
-    currentUser = null;
-    updateProfileUI();
-    localStorage.setItem("ambientLastPage", "home");
-    transitionTo("pageHome");
-  });
+  if (profileLogoutBtn) profileLogoutBtn.addEventListener("click", handleLogout);
   if (profileSettingsBtn) profileSettingsBtn.addEventListener("click", () => {
     if (profileMenu) profileMenu.classList.remove("active");
     transitionTo("pageSettings");

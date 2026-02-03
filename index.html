@@ -45,7 +45,29 @@
     <div class="top-center">
       <input id="themeSearch" class="search-input" type="search" placeholder="Search themes...">
     </div>
-    <div class="top-right"></div>
+    <div class="top-right">
+      <button id="burgerBtn" class="burger-btn" aria-label="Menu">☰</button>
+    </div>
+  </div>
+
+  <!-- Mobile Menu -->
+  <div id="mobileMenu" class="mobile-menu" aria-hidden="true">
+    <div class="mobile-menu-panel" role="dialog" aria-modal="true" aria-label="Menu">
+      <div class="mobile-menu-header">
+        <span>Menu</span>
+        <button id="mobileMenuClose" class="icon-btn" aria-label="Close">&#10005;</button>
+      </div>
+      <div id="mobileSearchWrap" class="mobile-search">
+        <input id="mobileSearchInput" class="search-input" type="search" placeholder="Search themes...">
+      </div>
+      <div class="mobile-menu-actions">
+        <button id="mobileMenuHomeBtn" class="menu-btn">Home</button>
+        <button id="mobileMenuSettingsBtn" class="menu-btn">Settings</button>
+        <button id="mobileMenuLoginBtn" class="menu-btn">Log in</button>
+        <button id="mobileMenuSignupBtn" class="menu-btn">Sign up</button>
+        <button id="mobileMenuLogoutBtn" class="menu-btn danger">Log out</button>
+      </div>
+    </div>
   </div>
 
   <!-- Profile Menu (Pages 1 & 2 only) -->
