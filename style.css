@@ -75,6 +75,7 @@ video {
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.7s ease;
+  overflow-y: auto;
 }
 
 .page.active {
@@ -95,6 +96,54 @@ h1 {
   -webkit-text-stroke: 0.8px rgba(0,0,0,0.25);
 
   text-align: center;
+}
+
+/* Section Titles */
+.section-title {
+  margin-top: 10px;
+  font-family: "Tabular", serif;
+  font-size: clamp(20px, 2.4vw, 28px);
+  color: rgba(245,245,245,0.85);
+  text-shadow: 0px 2px 10px rgba(0,0,0,0.7);
+}
+
+.controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.url-input {
+  width: min(92vw, 520px);
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: none;
+  background: rgba(0,0,0,0.45);
+  color: rgba(245,245,245,0.92);
+  font-size: 15px;
+  outline: none;
+  box-shadow: 0 0 20px rgba(0,0,0,0.45);
+}
+
+.url-input::placeholder {
+  color: rgba(255,255,255,0.4);
+}
+
+.add-btn {
+  padding: 12px 18px;
+  border-radius: 14px;
+  border: none;
+  cursor: pointer;
+  font-size: 15px;
+  background: rgba(255,255,255,0.14);
+  color: rgba(245,245,245,0.9);
+  transition: 0.25s;
+}
+
+.add-btn:hover {
+  background: rgba(255,255,255,0.22);
 }
 
 /* ================================
@@ -120,6 +169,7 @@ h1 {
 
   background-size: cover;
   background-position: center;
+  background-color: rgba(0,0,0,0.35);
 
   cursor: pointer;
   transition: 0.28s ease;
@@ -130,6 +180,42 @@ h1 {
 .thumb:hover {
   transform: scale(1.06);
   box-shadow: 0 0 50px rgba(255,255,255,0.10);
+}
+
+.thumb.video::after {
+  content: "VIDEO";
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  background: rgba(0,0,0,0.55);
+  color: rgba(255,255,255,0.8);
+}
+
+.thumb {
+  position: relative;
+  overflow: hidden;
+}
+
+.delete-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  border: none;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  cursor: pointer;
+  background: rgba(0,0,0,0.6);
+  color: rgba(255,255,255,0.85);
+  transition: 0.2s ease;
+}
+
+.delete-btn:hover {
+  background: rgba(160,30,30,0.8);
 }
 
 /* Upload Button */

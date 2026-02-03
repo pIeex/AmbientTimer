@@ -26,7 +26,8 @@
   <div id="page1" class="page active">
     <h1>Choose Your Atmosphere</h1>
 
-    <div class="grid">
+    <h2 class="section-title">Built-in Themes</h2>
+    <div class="grid" id="defaultThemes">
 
       <div class="thumb"
         onclick="chooseBg('videos/one.mp4')"
@@ -65,12 +66,23 @@
 
     </div>
 
-    <label class="upload">
-      Upload Your Own Background
-      <input type="file"
-        accept="video/mp4,image/png,image/jpeg"
-        onchange="uploadBackground(event)">
-    </label>
+    <h2 class="section-title">Your Themes</h2>
+    <div class="controls">
+      <label class="upload">
+        Upload From Device
+        <input id="localUploadInput" type="file"
+          accept="video/mp4,image/png,image/jpeg">
+      </label>
+    </div>
+    <div class="grid" id="localThemesGrid"></div>
+
+    <h2 class="section-title">Online Themes</h2>
+    <div class="controls">
+      <input id="onlineUrlInput" class="url-input" type="url"
+        placeholder="Paste an image or video URL (.jpg, .png, .mp4)">
+      <button id="addOnlineThemeBtn" class="add-btn">Add URL</button>
+    </div>
+    <div class="grid" id="onlineThemesGrid"></div>
   </div>
 
   <!-- ============================= -->
