@@ -1746,6 +1746,13 @@ function updateTimerHintVisibility() {
   timerHint.classList.toggle("visible", show);
 }
 
+function queueReloadTo(pageId) {
+  if (pageId) {
+    localStorage.setItem("ambientForcePage", pageId);
+  }
+  setTimeout(() => window.location.reload(), 300);
+}
+
 function markGuestThemesPending() {
   localStorage.setItem("ambientGuestImportHandled", "false");
 }
@@ -1871,7 +1878,7 @@ async function handleLogout() {
     updateProfileUI();
     localStorage.setItem("ambientLastPage", "selector");
     showPage("page1");
-    setTimeout(() => window.location.reload(), 300);
+    queueReloadTo("page1");
   }
 }
 
@@ -2015,6 +2022,11 @@ function updateProfileUI() {
 async function initAuth() {
   supabaseClient = initSupabaseClient();
   document.body.dataset.page = "pageHome";
+  const forcedPage = localStorage.getItem("ambientForcePage");
+  if (forcedPage) {
+    localStorage.removeItem("ambientForcePage");
+    showPage(forcedPage);
+  }
   const hasVisited = localStorage.getItem("ambientHasVisited") === "true";
   if (!hasVisited) {
     localStorage.setItem("ambientTimerHintPending", "true");
@@ -2024,7 +2036,9 @@ async function initAuth() {
   if (!localStorage.getItem("ambientGuestImportHandled")) {
     localStorage.setItem("ambientGuestImportHandled", "true");
   }
-  if (!hasVisited) {
+  if (forcedPage) {
+    // Page already set above.
+  } else if (!hasVisited) {
     showPage("pageHome");
     localStorage.setItem("ambientHasVisited", "true");
   } else {
@@ -2220,7 +2234,7 @@ async function initAuth() {
       try {
         await refreshAuthState();
       } finally {
-        setTimeout(() => window.location.reload(), 300);
+        queueReloadTo(document.body.dataset.page || "pageSettings");
       }
     });
   }
