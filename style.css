@@ -1262,6 +1262,12 @@ body[data-page="pageHome"][data-auth="true"] .top-bar {
   width: 112px;
   height: 112px;
   object-fit: contain;
+  user-select: none;
+  -webkit-user-select: none;
+  -ms-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 .logo-text {
@@ -1494,6 +1500,12 @@ body[data-page="pageHome"] .top-center {
   height: auto;
   margin: 0 auto;
   filter: drop-shadow(0 12px 40px rgba(0,0,0,0.45));
+  user-select: none;
+  -webkit-user-select: none;
+  -ms-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
   grid-row: 2;
   align-self: end;
   transform: translateY(-18px);
@@ -1710,6 +1722,16 @@ body[data-auth="false"] #homeAuthed {
   .back-btn {
     top: 12px;
     left: 12px;
+  }
+  .home-content {
+    grid-template-rows: 6fr 40fr 18fr 26fr;
+  }
+  .home-logo {
+    transform: translateY(-36px);
+  }
+  .home-actions,
+  .home-welcome {
+    margin-top: 0;
   }
 }
 
