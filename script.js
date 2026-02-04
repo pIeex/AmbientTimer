@@ -72,6 +72,8 @@ const authPasswordConfirm = document.getElementById("authPasswordConfirm");
 const authGoogleBtn = document.getElementById("authGoogleBtn");
 const authSubmitBtn = document.getElementById("authSubmitBtn");
 const authMessage = document.getElementById("authMessage");
+const authBody = document.querySelector(".auth-body");
+const authConfirmBox = document.getElementById("authConfirmBox");
 const toastContainer = document.getElementById("toastContainer");
 const settingsBackBtn = document.getElementById("settingsBackBtn");
 const settingsAvatar = document.getElementById("settingsAvatar");
@@ -128,6 +130,9 @@ const multiSelect = {
 let alarmFadeHandler = null;
 let isPreviewMode = false;
 let isForceRestarting = false;
+const pendingOnlineUrls = new Set();
+const pendingLocalSigs = new Set();
+let filterFitScheduled = false;
 const hoverQuery = window.matchMedia("(hover: hover) and (pointer: fine)");
 const touchQuery = window.matchMedia("(hover: none), (pointer: coarse)");
 let supportsHover = hoverQuery.matches;
@@ -367,6 +372,73 @@ function setOnlineThemes(list) {
   localStorage.setItem(ONLINE_STORAGE_KEY, JSON.stringify(list));
 }
 
+function scheduleFilterAndFit() {
+  if (filterFitScheduled) return;
+  filterFitScheduled = true;
+  requestAnimationFrame(() => {
+    filterFitScheduled = false;
+    applySearchFilter(themeSearch?.value || "");
+  });
+}
+
+function normalizeUrl(url) {
+  try {
+    const parsed = new URL(url);
+    parsed.hash = "";
+    return parsed.href;
+  } catch {
+    return (url || "").trim();
+  }
+}
+
+function createUploadPlaceholder(container, label) {
+  if (!container) return null;
+  const card = document.createElement("div");
+  card.className = "thumb upload-placeholder";
+  const overlay = document.createElement("div");
+  overlay.className = "upload-overlay";
+  const spinner = document.createElement("div");
+  spinner.className = "upload-spinner";
+  const text = document.createElement("div");
+  text.className = "upload-text";
+  text.textContent = `Uploading 0%`;
+  const name = document.createElement("div");
+  name.className = "upload-text";
+  name.textContent = label || "Uploading...";
+  overlay.appendChild(spinner);
+  overlay.appendChild(text);
+  overlay.appendChild(name);
+  card.appendChild(overlay);
+  container.appendChild(card);
+  let percent = 0;
+  const tick = () => {
+    percent = Math.min(90, percent + Math.random() * 12 + 4);
+    text.textContent = `Uploading ${Math.round(percent)}%`;
+  };
+  const interval = setInterval(tick, 350);
+  tick();
+  scheduleFilterAndFit();
+  return {
+    update(value) {
+      percent = Math.max(percent, Math.min(100, value));
+      text.textContent = `Uploading ${Math.round(percent)}%`;
+    },
+    done() {
+      clearInterval(interval);
+      text.textContent = "Uploading 100%";
+      setTimeout(() => {
+        card.remove();
+        scheduleFilterAndFit();
+      }, 200);
+    },
+    fail() {
+      clearInterval(interval);
+      card.remove();
+      scheduleFilterAndFit();
+    }
+  };
+}
+
 function attachThemeInteractions(card, theme, onSelect) {
   let blockNextClick = false;
   let touchTimer = null;
@@ -540,8 +612,7 @@ function renderThemeCard(theme, container, options) {
     updateSelectableState(card, options.group);
   }
   container.appendChild(card);
-  applySearchFilter(themeSearch?.value || "");
-  fitActivePage();
+  scheduleFilterAndFit();
 }
 
 function scheduleHoverReset() {
@@ -888,7 +959,7 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
 
   if (options.existingSigSet && options.existingSigSet.has(sig)) {
     showToast({
-      message: "That file already exists in Your Themes.",
+      message: `${file.name} already exists.`,
       type: "error",
       durationMs: 2000
     });
@@ -897,7 +968,7 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
 
   if (options.cloudNameSet && options.cloudNameSet.has(name.toLowerCase())) {
     showToast({
-      message: "A theme with this name already exists.",
+      message: `${name} already exists.`,
       type: "error",
       durationMs: 2000
     });
@@ -1021,9 +1092,26 @@ async function handleLocalUpload(event) {
       });
       continue;
     }
-    await addLocalThemeFromFile(file, false, { existingSigSet, cloudNameSet });
-    existingSigSet.add(themeKeyFromFile(file));
-    cloudNameSet.add(deriveNameFromFile(file).toLowerCase());
+    const sig = themeKeyFromFile(file);
+    const name = deriveNameFromFile(file);
+    if (existingSigSet.has(sig) || pendingLocalSigs.has(sig) || cloudNameSet.has(name.toLowerCase())) {
+      showToast({
+        message: `${name} already exists.`,
+        type: "error",
+        durationMs: 2000
+      });
+      continue;
+    }
+    pendingLocalSigs.add(sig);
+    const placeholder = createUploadPlaceholder(localThemesGrid, name);
+    try {
+      await addLocalThemeFromFile(file, false, { existingSigSet, cloudNameSet, placeholder });
+      existingSigSet.add(sig);
+      cloudNameSet.add(deriveNameFromFile(file).toLowerCase());
+    } finally {
+      pendingLocalSigs.delete(sig);
+      placeholder?.done();
+    }
   }
   event.target.value = "";
 }
@@ -1055,7 +1143,8 @@ function toggleUploadMenu(force) {
 }
 
 async function handleAddOnlineTheme() {
-  const url = (onlineUrlInput.value || "").trim();
+  const rawUrl = (onlineUrlInput.value || "").trim();
+  const url = normalizeUrl(rawUrl);
   if (!url) return;
 
   const mediaType = getMediaTypeFromUrl(url);
@@ -1068,6 +1157,21 @@ async function handleAddOnlineTheme() {
     return;
   }
 
+  const existingOnline = [
+    ...getOnlineThemes().map(item => normalizeUrl(item.url || "")),
+    ...getCloudThemesByKind("online").map(item => normalizeUrl(item.src || "")),
+    ...Array.from(pendingOnlineUrls)
+  ];
+  if (existingOnline.includes(url)) {
+    showToast({
+      message: `${deriveNameFromUrl(url)} already exists.`,
+      type: "error",
+      durationMs: 2000
+    });
+    return;
+  }
+  pendingOnlineUrls.add(url);
+
   const theme = {
     id: makeId(),
     kind: "online",
@@ -1077,32 +1181,47 @@ async function handleAddOnlineTheme() {
     createdAt: Date.now()
   };
 
-  if (isLoggedIn() && supabaseClient) {
-    const result = await saveCloudThemeRecord({
-      kind: "online",
-      mediaType,
-      url,
-      name: theme.name
-    });
-    if (result?.data) {
-      const record = result.data;
-      await renderOnlineTheme({
-        id: record.id,
+  const placeholder = createUploadPlaceholder(onlineThemesGrid, theme.name);
+
+  try {
+    if (isLoggedIn() && supabaseClient) {
+      const result = await saveCloudThemeRecord({
         kind: "online",
         mediaType,
-        url: record.url,
-        name: record.name || theme.name,
-        storagePath: record.storage_path || "",
-        source: "cloud"
+        url,
+        name: theme.name
       });
-    } else {
-      if (result?.error) {
-        showToast({
-          message: result.error.message || "Could not add this URL.",
-          type: "error",
-          durationMs: 2000
+      if (result?.data) {
+        const record = result.data;
+        await renderOnlineTheme({
+          id: record.id,
+          kind: "online",
+          mediaType,
+          url: record.url,
+          name: record.name || theme.name,
+          storagePath: record.storage_path || "",
+          source: "cloud"
         });
+        placeholder?.done();
+      } else {
+        if (result?.error) {
+          showToast({
+            message: result.error.message || "Could not add this URL.",
+            type: "error",
+            durationMs: 2000
+          });
+        }
+        const list = getOnlineThemes();
+        const exists = list.some(item => item.url === theme.url && item.mediaType === theme.mediaType);
+        if (!exists) {
+          list.push(theme);
+          setOnlineThemes(list);
+        }
+        await renderOnlineTheme(theme);
+        promptLoginToast();
+        placeholder?.done();
       }
+    } else {
       const list = getOnlineThemes();
       const exists = list.some(item => item.url === theme.url && item.mediaType === theme.mediaType);
       if (!exists) {
@@ -1111,18 +1230,12 @@ async function handleAddOnlineTheme() {
       }
       await renderOnlineTheme(theme);
       promptLoginToast();
+      placeholder?.done();
     }
-  } else {
-    const list = getOnlineThemes();
-    const exists = list.some(item => item.url === theme.url && item.mediaType === theme.mediaType);
-    if (!exists) {
-      list.push(theme);
-      setOnlineThemes(list);
-    }
-    await renderOnlineTheme(theme);
-    promptLoginToast();
+  } finally {
+    pendingOnlineUrls.delete(url);
+    onlineUrlInput.value = "";
   }
-  onlineUrlInput.value = "";
 }
 
 async function renderOnlineTheme(theme) {
@@ -1481,17 +1594,27 @@ function setAuthMode(mode) {
   authTabLogin.classList.toggle("active", !isSignup);
   authTabSignup.classList.toggle("active", isSignup);
   authTitle.textContent = isSignup ? "Create your account" : "Welcome back";
+  if (authBody) {
+    authBody.classList.remove("confirming");
+  }
   document.querySelectorAll(".auth-signup-only").forEach(el => {
     el.style.display = isSignup ? "grid" : "none";
   });
   if (authPassword) {
     authPassword.autocomplete = isSignup ? "new-password" : "off";
+    authPassword.name = isSignup ? "new-password" : "password";
     if (!isSignup) {
       authPassword.setAttribute("data-lpignore", "true");
       authPassword.setAttribute("data-1p-ignore", "true");
+      authPassword.readOnly = true;
+      const unlock = () => {
+        authPassword.readOnly = false;
+      };
+      authPassword.addEventListener("focus", unlock, { once: true });
     } else {
       authPassword.removeAttribute("data-lpignore");
       authPassword.removeAttribute("data-1p-ignore");
+      authPassword.readOnly = false;
     }
   }
   if (authPasswordConfirm) {
@@ -1517,13 +1640,20 @@ async function handleLogout() {
       type: "error",
       durationMs: 2000
     });
-    return;
   }
+  try {
+    Object.keys(localStorage || {}).forEach((key) => {
+      if (key.startsWith("sb-") && key.endsWith("-auth-token")) {
+        localStorage.removeItem(key);
+      }
+    });
+  } catch {}
+  await refreshAuthState();
   currentUser = null;
   updateProfileUI();
-  localStorage.setItem("ambientLastPage", "home");
-  transitionTo("pageHome");
-  setTimeout(() => window.location.reload(), 250);
+  localStorage.setItem("ambientLastPage", "selector");
+  showPage("page1");
+  setTimeout(() => window.location.reload(), 300);
 }
 
 async function handleAuthSubmit() {
@@ -1551,10 +1681,16 @@ async function handleAuthSubmit() {
       email,
       password,
       options: {
+        emailRedirectTo: "https://pieex.github.io/AmbientTimer/",
         data: { display_name: displayName || email.split("@")[0] }
       }
     });
-    setMessage(authMessage, error ? error.message : "Check your email to confirm your account.", !!error);
+    if (error) {
+      setMessage(authMessage, error.message, true);
+    } else {
+      if (authBody) authBody.classList.add("confirming");
+      if (authConfirmBox) authConfirmBox.textContent = "Please check your email to confirm your account.";
+    }
   } else {
     const { error } = await supabaseClient.auth.signInWithPassword({
       email,
@@ -1656,10 +1792,15 @@ async function initAuth() {
   supabaseClient = initSupabaseClient();
   document.body.dataset.page = "pageHome";
   const last = localStorage.getItem("ambientLastPage");
-  if (last === "home") {
+  const navEntry = performance.getEntriesByType("navigation")[0];
+  const navType = navEntry?.type || "navigate";
+  const isReload = navType === "reload";
+  if (isReload && last === "selector") {
+    showPage("page1");
+  } else if (isReload && last === "home") {
     showPage("pageHome");
   } else {
-    showPage("page1");
+    showPage("pageHome");
   }
 
   const logo = document.querySelector(".logo-img");
@@ -1777,8 +1918,12 @@ async function initAuth() {
       }
 
       setMessage(settingsMessage, "Profile updated.", false);
+      showToast({
+        message: "Changes have been saved.",
+        durationMs: 2000
+      });
       await refreshAuthState();
-      setTimeout(() => window.location.reload(), 250);
+      setTimeout(() => window.location.reload(), 300);
     });
   }
 
@@ -1787,8 +1932,23 @@ async function initAuth() {
       if (!supabaseClient || !currentUser) return;
       const email = currentUser.email;
       if (!email) return;
-      const { error } = await supabaseClient.auth.resetPasswordForEmail(email);
-      setMessage(settingsMessage, error ? error.message : "Password email sent.", !!error);
+      const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+        redirectTo: "https://pieex.github.io/AmbientTimer/"
+      });
+      if (error) {
+        setMessage(settingsMessage, error.message, true);
+        showToast({
+          message: error.message || "Could not send password email.",
+          type: "error",
+          durationMs: 2500
+        });
+      } else {
+        setMessage(settingsMessage, "Password email sent.", false);
+        showToast({
+          message: "Password reset email has been sent.",
+          durationMs: 2000
+        });
+      }
     });
   }
 
@@ -1843,6 +2003,8 @@ async function initAuth() {
       await refreshAuthState();
     });
   }
+
+  setAuthMode(authMode);
 
   if (!supabaseClient) {
     updateProfileUI();

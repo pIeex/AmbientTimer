@@ -411,6 +411,36 @@ h1 {
   overflow: hidden;
 }
 
+.thumb.upload-placeholder {
+  background: rgba(0,0,0,0.35);
+  border: 1px dashed rgba(255,255,255,0.18);
+  display: grid;
+  place-items: center;
+}
+
+.upload-overlay {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  color: rgba(245,245,245,0.9);
+  font-size: 12px;
+  text-align: center;
+}
+
+.upload-spinner {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px solid rgba(255,255,255,0.2);
+  border-top-color: rgba(255,255,255,0.9);
+  animation: spin 0.9s linear infinite;
+}
+
+.upload-text {
+  font-size: 12px;
+  opacity: 0.85;
+}
+
 .thumb.selectable::after {
   content: "✓";
   position: absolute;
@@ -621,6 +651,9 @@ h1 {
   font-size: clamp(90px, 10vw, 170px);
 
   color: rgba(245,245,245,0.92);
+  user-select: none;
+  -webkit-user-select: none;
+  -ms-user-select: none;
 
   letter-spacing: 5px;
 
@@ -865,6 +898,29 @@ body[data-page="page2"] .profile-shell {
 .auth-body {
   display: grid;
   gap: 12px;
+}
+
+.auth-confirm {
+  display: none;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.auth-body.confirming .auth-confirm {
+  display: block;
+}
+
+.auth-body.confirming .field,
+.auth-body.confirming .auth-or,
+.auth-body.confirming .google-btn,
+.auth-body.confirming .primary-btn,
+.auth-body.confirming .auth-message {
+  display: none;
 }
 
 .auth-or {
@@ -1484,6 +1540,10 @@ body[data-auth="false"] #homeAuthed {
 @keyframes popUp {
   0% { transform: translateY(0) scale(1); opacity: 1; }
   100% { transform: translateY(-8px) scale(0.98); opacity: 0; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 @keyframes homeFadeIn {

@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Ambient Luxe Timer</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -104,6 +105,9 @@
         <button id="authTabSignup" class="tab-btn">Sign up</button>
       </div>
       <div class="auth-body">
+        <div id="authConfirmBox" class="auth-confirm">
+          Please check your email to confirm your account.
+        </div>
         <div class="field">
           <label for="authEmail">Email</label>
           <input id="authEmail" name="email" type="email" placeholder="you@email.com" autocomplete="username" autocapitalize="none" spellcheck="false">
@@ -134,7 +138,7 @@
   <!-- ============================= -->
   <!-- HOME: Welcome -->
   <!-- ============================= -->
-  <div id="pageHome" class="page active">
+  <div id="pageHome" class="page">
     <div class="page-content home-content">
       <img src="images/logo.png" alt="Ambient Timer" class="home-logo">
       <div id="homeGuest" class="home-actions">
