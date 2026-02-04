@@ -1851,19 +1851,34 @@ body[data-auth="false"] #homeAuthed {
     border-radius: 18px;
   }
   .panel-controls {
-    display: grid;
-    gap: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    min-height: 50px;
+    position: relative;
   }
   .controls-main {
-    position: static;
-    transform: none;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
     flex-wrap: wrap;
-    pointer-events: auto;
-    max-width: 100%;
+    justify-content: center;
+    pointer-events: none;
+    width: 100%;
+    max-width: calc(100% - 140px);
+    white-space: normal;
   }
   .controls-side {
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    transform: translateY(-50%);
     margin-left: 0;
-    justify-content: center;
+    justify-content: flex-end;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
   }
   .grid {
     width: 100%;
