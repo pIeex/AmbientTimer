@@ -117,6 +117,10 @@ body[data-page="page1"] .page-tint {
   opacity: 1;
 }
 
+body[data-media="image"] .page-tint {
+  opacity: 0;
+}
+
 body.tint-exit .page-tint {
   opacity: 0;
 }
@@ -188,9 +192,9 @@ body.tint-exit .page-tint {
 }
 
 .version-tag {
-  position: absolute;
-  bottom: 14px;
-  right: 18px;
+  margin-top: auto;
+  align-self: flex-end;
+  padding: 10px 18px;
   font-size: 11px;
   letter-spacing: 0.6px;
   opacity: 0.6;
@@ -204,8 +208,7 @@ body.tint-exit .page-tint {
 
 @media (max-width: 600px) {
   .version-tag {
-    bottom: 10px;
-    right: 12px;
+    padding: 8px 12px;
     font-size: 10px;
   }
 }
@@ -828,6 +831,10 @@ h1 {
 
   filter: blur(45px);
   z-index: 0;
+}
+
+body[data-page="timerBox"][data-media="image"] #timerBox::before {
+  opacity: 0;
 }
 
 .hint {

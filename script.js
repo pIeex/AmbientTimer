@@ -128,6 +128,7 @@ let lastHoveredCard = null;
 let hoverPreviewTimer = null;
 const HOVER_PREVIEW_DELAY_MS = 200;
 let currentPreviewTheme = { mediaType: "image", src: DEFAULT_BG_SRC };
+let currentMediaMode = "image";
 let videoWatchdog = null;
 let localRenderToken = 0;
 let onlineRenderToken = 0;
@@ -154,6 +155,7 @@ const touchQuery = window.matchMedia("(hover: none), (pointer: coarse)");
 let supportsHover = hoverQuery.matches;
 let isTouchDevice = touchQuery.matches;
 document.body.classList.toggle("touch", isTouchDevice);
+document.body.dataset.media = currentMediaMode;
 hoverQuery.addEventListener("change", (e) => {
   supportsHover = e.matches;
 });
@@ -261,6 +263,7 @@ function applyTheme(theme, { previewOnly = false } = {}) {
     }
     currentPreviewTheme = { mediaType: theme.mediaType, src: theme.src };
   }
+  setMediaMode(theme.mediaType);
   if (theme.mediaType === "video") {
     transitionToVideo(theme.src);
   } else {
@@ -272,6 +275,13 @@ function applyTheme(theme, { previewOnly = false } = {}) {
     currentPreviewTheme = { mediaType: theme.mediaType, src: theme.src };
     transitionTo("page2");
   }
+}
+
+function setMediaMode(mediaType) {
+  const mode = mediaType === "video" ? "video" : "image";
+  if (mode === currentMediaMode) return;
+  currentMediaMode = mode;
+  document.body.dataset.media = mode;
 }
 
 function getMediaTypeFromUrl(url) {
@@ -463,6 +473,12 @@ function processPreloadQueue() {
 function extractBgUrl(value) {
   if (!value) return "";
   return value.replace(/^url\(["']?|["']?\)$/g, "");
+}
+
+function getActiveImageSrc() {
+  const active = bgImages[activeImageIndex];
+  if (!active) return "";
+  return normalizeSrc(extractBgUrl(active.style.backgroundImage || ""));
 }
 
 function scheduleFilterAndFit() {
@@ -2695,7 +2711,8 @@ function transitionToVideo(src) {
 
 function transitionToImage(src) {
   const targetSrc = normalizeSrc(src);
-  if (currentPreviewTheme.mediaType === "image" && currentPreviewTheme.src === targetSrc) {
+  const activeSrc = getActiveImageSrc();
+  if (activeSrc && activeSrc === targetSrc && bgImages[activeImageIndex]?.classList.contains("active")) {
     return;
   }
   stopVideoWatchdog();
