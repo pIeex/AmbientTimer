@@ -77,6 +77,8 @@ const authConfirmBox = document.getElementById("authConfirmBox");
 const authResendWrap = document.getElementById("authResendWrap");
 const authResendBtn = document.getElementById("authResendBtn");
 const toastContainer = document.getElementById("toastContainer");
+const orientationOverlay = document.getElementById("orientationOverlay");
+const orientationMessage = document.getElementById("orientationMessage");
 const settingsBackBtn = document.getElementById("settingsBackBtn");
 const settingsAvatar = document.getElementById("settingsAvatar");
 const settingsAvatarFallback = document.getElementById("settingsAvatarFallback");
@@ -136,6 +138,7 @@ const pendingOnlineUrls = new Set();
 const pendingLocalSigs = new Set();
 let filterFitScheduled = false;
 let loginNeedsConfirm = false;
+let orientationLockTarget = "portrait";
 const preloadSeen = new Set();
 const preloadQueue = [];
 let preloading = 0;
@@ -166,6 +169,8 @@ function showPage(id) {
 
   document.getElementById(id).classList.add("active");
   document.body.dataset.page = id;
+  const lock = id === "timerBox" ? "landscape" : "portrait";
+  setOrientationLock(lock);
   if (id === "page1" || id === "page2") {
     lastMainPage = id;
   }
@@ -1720,6 +1725,21 @@ function updateResendVisibility() {
   authResendWrap.style.display = show ? "grid" : "none";
 }
 
+function setOrientationLock(target) {
+  if (!isTouchDevice) return;
+  orientationLockTarget = target;
+  document.body.dataset.orientationLock = target;
+  if (orientationMessage) {
+    orientationMessage.textContent =
+      target === "landscape"
+        ? "Rotate your device to landscape"
+        : "Rotate your device to portrait";
+  }
+  if (screen.orientation && screen.orientation.lock) {
+    screen.orientation.lock(target).catch(() => {});
+  }
+}
+
 async function handleLogout() {
   if (!supabaseClient) return;
   if (profileMenu) profileMenu.classList.remove("active");
@@ -1905,6 +1925,11 @@ async function initAuth() {
       goHomeWithFade();
     });
   }
+  document.querySelectorAll(".logo-img, .home-logo").forEach((img) => {
+    img.setAttribute("draggable", "false");
+    img.addEventListener("contextmenu", (e) => e.preventDefault());
+    img.addEventListener("dragstart", (e) => e.preventDefault());
+  });
 
   document.addEventListener("keydown", (e) => {
     if (e.altKey && e.ctrlKey && e.code === "KeyU") {
@@ -2236,6 +2261,7 @@ function startTimerFromSeconds(totalSeconds) {
 
   // Fullscreen immersion
   document.documentElement.requestFullscreen().catch(() => {});
+  setTimeout(() => setOrientationLock("landscape"), 250);
 
   updateDisplay();
 

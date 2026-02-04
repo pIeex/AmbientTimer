@@ -1180,6 +1180,52 @@ body[data-page="page2"] .profile-shell {
 }
 
 /* ================================
+   ORIENTATION LOCK OVERLAY
+   ================================ */
+
+.orientation-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: none;
+  place-items: center;
+  background: rgba(4, 6, 10, 0.85);
+  backdrop-filter: blur(6px);
+  text-align: center;
+  padding: 24px;
+}
+
+.orientation-card {
+  background: rgba(10, 12, 18, 0.9);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 18px;
+  padding: 18px 22px;
+  color: rgba(245,245,245,0.92);
+  font-family: "Tabular", serif;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+}
+
+body[data-orientation-lock="portrait"] .orientation-overlay {
+  display: none;
+}
+
+body[data-orientation-lock="landscape"] .orientation-overlay {
+  display: none;
+}
+
+@media (orientation: landscape) {
+  body[data-orientation-lock="portrait"] .orientation-overlay {
+    display: grid;
+  }
+}
+
+@media (orientation: portrait) {
+  body[data-orientation-lock="landscape"] .orientation-overlay {
+    display: grid;
+  }
+}
+
+/* ================================
    CONFIRM MODAL
    ================================ */
 
