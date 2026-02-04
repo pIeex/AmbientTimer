@@ -133,6 +133,11 @@ let isForceRestarting = false;
 const pendingOnlineUrls = new Set();
 const pendingLocalSigs = new Set();
 let filterFitScheduled = false;
+const preloadSeen = new Set();
+const preloadQueue = [];
+let preloading = 0;
+let preloadScheduled = false;
+const MAX_PRELOAD = 2;
 const hoverQuery = window.matchMedia("(hover: hover) and (pointer: fine)");
 const touchQuery = window.matchMedia("(hover: none), (pointer: coarse)");
 let supportsHover = hoverQuery.matches;
@@ -372,6 +377,74 @@ function setOnlineThemes(list) {
   localStorage.setItem(ONLINE_STORAGE_KEY, JSON.stringify(list));
 }
 
+function schedulePreloadWork() {
+  if (preloadScheduled) return;
+  preloadScheduled = true;
+  const run = () => {
+    preloadScheduled = false;
+    processPreloadQueue();
+  };
+  if ("requestIdleCallback" in window) {
+    requestIdleCallback(run, { timeout: 1200 });
+  } else {
+    setTimeout(run, 250);
+  }
+}
+
+function enqueuePreload(url, type) {
+  if (!url) return;
+  const key = `${type}:${url}`;
+  if (preloadSeen.has(key)) return;
+  preloadSeen.add(key);
+  preloadQueue.push({ url, type });
+  schedulePreloadWork();
+}
+
+function processPreloadQueue() {
+  while (preloading < MAX_PRELOAD && preloadQueue.length) {
+    const job = preloadQueue.shift();
+    preloading += 1;
+    if (job.type === "image") {
+      const img = new Image();
+      img.decoding = "async";
+      img.onload = img.onerror = () => {
+        preloading -= 1;
+        processPreloadQueue();
+      };
+      img.src = job.url;
+    } else if (job.type === "video") {
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      video.muted = true;
+      video.playsInline = true;
+      const cleanup = () => {
+        video.removeAttribute("src");
+        video.load();
+        preloading -= 1;
+        processPreloadQueue();
+      };
+      const timeout = setTimeout(cleanup, 2500);
+      video.addEventListener("loadedmetadata", () => {
+        clearTimeout(timeout);
+        cleanup();
+      }, { once: true });
+      video.addEventListener("error", () => {
+        clearTimeout(timeout);
+        cleanup();
+      }, { once: true });
+      video.src = job.url;
+      video.load();
+    } else {
+      preloading -= 1;
+    }
+  }
+}
+
+function extractBgUrl(value) {
+  if (!value) return "";
+  return value.replace(/^url\(["']?|["']?\)$/g, "");
+}
+
 function scheduleFilterAndFit() {
   if (filterFitScheduled) return;
   filterFitScheduled = true;
@@ -521,6 +594,12 @@ function renderThemeCard(theme, container, options) {
 
   if (theme.preview) {
     card.style.backgroundImage = `url(${theme.preview})`;
+  }
+  if (theme.preview) {
+    enqueuePreload(theme.preview, "image");
+  }
+  if (theme.mediaType === "video" && theme.src) {
+    enqueuePreload(theme.src, "video");
   }
 
   attachThemeInteractions(card, theme, () => {
@@ -797,6 +876,9 @@ function initBuiltInThemes() {
     const name = card.dataset.name || "Built-in";
     card.dataset.name = name.toLowerCase();
     const theme = { src, mediaType, name };
+    const previewUrl = extractBgUrl(card.style.backgroundImage);
+    if (previewUrl) enqueuePreload(previewUrl, "image");
+    if (mediaType === "video" && src) enqueuePreload(src, "video");
     attachThemeInteractions(card, theme, () => applyTheme(theme));
   });
 }
