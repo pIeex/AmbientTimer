@@ -1365,7 +1365,6 @@ async function renderOnlineTheme(theme) {
         );
         setOnlineThemes(list);
       }
-      loadAndRenderOnlineThemes();
     },
     onDelete: async (t) => {
       if (t.source === "cloud") {
@@ -1422,7 +1421,6 @@ async function loadAndRenderLocalThemes() {
       group: "local",
       onRename: async (t, nextName) => {
         await updateLocalThemeName(t.id, nextName);
-        loadAndRenderLocalThemes();
       },
       onDelete: async (t) => {
         await deleteLocalTheme(t.id);
@@ -1450,7 +1448,6 @@ async function loadAndRenderLocalThemes() {
       group: "local",
       onRename: async (t, nextName) => {
         await renameCloudTheme(t, nextName);
-        loadAndRenderLocalThemes();
       },
       onDelete: async (t) => {
         await deleteCloudTheme(t);
@@ -1715,27 +1712,30 @@ async function handleLogout() {
   if (!supabaseClient) return;
   if (profileMenu) profileMenu.classList.remove("active");
   closeMobileMenu();
-  const { error } = await supabaseClient.auth.signOut();
-  if (error) {
-    showToast({
-      message: error.message || "Logout failed.",
-      type: "error",
-      durationMs: 2000
-    });
-  }
   try {
-    Object.keys(localStorage || {}).forEach((key) => {
-      if (key.startsWith("sb-") && key.endsWith("-auth-token")) {
-        localStorage.removeItem(key);
-      }
-    });
-  } catch {}
-  await refreshAuthState();
-  currentUser = null;
-  updateProfileUI();
-  localStorage.setItem("ambientLastPage", "selector");
-  showPage("page1");
-  setTimeout(() => window.location.reload(), 300);
+    const { error } = await supabaseClient.auth.signOut();
+    if (error) {
+      showToast({
+        message: error.message || "Logout failed.",
+        type: "error",
+        durationMs: 2000
+      });
+    }
+  } finally {
+    try {
+      Object.keys(localStorage || {}).forEach((key) => {
+        if (key.startsWith("sb-") && key.endsWith("-auth-token")) {
+          localStorage.removeItem(key);
+        }
+      });
+    } catch {}
+    await refreshAuthState();
+    currentUser = null;
+    updateProfileUI();
+    localStorage.setItem("ambientLastPage", "selector");
+    showPage("page1");
+    setTimeout(() => window.location.reload(), 300);
+  }
 }
 
 async function handleAuthSubmit() {
@@ -2008,8 +2008,11 @@ async function initAuth() {
         message: "Changes have been saved.",
         durationMs: 2000
       });
-      await refreshAuthState();
-      setTimeout(() => window.location.reload(), 300);
+      try {
+        await refreshAuthState();
+      } finally {
+        setTimeout(() => window.location.reload(), 300);
+      }
     });
   }
 
@@ -2254,6 +2257,11 @@ timerDisplay.addEventListener("click", () => {
 });
 
 document.addEventListener("keydown", (e) => {
+  const target = e.target;
+  const tag = target?.tagName?.toLowerCase();
+  if (target?.isContentEditable || tag === "input" || tag === "textarea" || tag === "select") {
+    return;
+  }
   if (e.code === "Space") {
     e.preventDefault();
     paused = !paused;
