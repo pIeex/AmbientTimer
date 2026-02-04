@@ -2000,14 +2000,21 @@ async function initAuth() {
     }
   });
   if (authPassword && authPasswordConfirm) {
-    const syncConfirm = () => {
-      if (authMode === "signup") {
-        authPasswordConfirm.value = authPassword.value;
-      }
+    const syncFromAutofill = () => {
+      if (authMode !== "signup") return;
+      if (!authPassword.value) return;
+      authPasswordConfirm.value = authPassword.value;
     };
-    authPassword.addEventListener("input", syncConfirm);
-    authPassword.addEventListener("change", syncConfirm);
-    authPassword.addEventListener("paste", () => setTimeout(syncConfirm, 0));
+    authPassword.addEventListener("animationstart", (e) => {
+      if (e.animationName === "autoFillStart") {
+        syncFromAutofill();
+      }
+    });
+    authPassword.addEventListener("input", (e) => {
+      if (e.inputType === "insertReplacementText") {
+        syncFromAutofill();
+      }
+    });
   }
 
   if (homeTimerBtn) homeTimerBtn.addEventListener("click", () => transitionTo("page1"));
