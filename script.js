@@ -5,6 +5,8 @@
 let remainingSeconds = 0;
 let timerInterval = null;
 let paused = false;
+let timerEndMs = 0;
+let pauseStartedMs = null;
 
 const bgVideoA = document.getElementById("bgVideoA");
 const bgVideoB = document.getElementById("bgVideoB");
@@ -79,6 +81,8 @@ const authResendBtn = document.getElementById("authResendBtn");
 const toastContainer = document.getElementById("toastContainer");
 const orientationOverlay = document.getElementById("orientationOverlay");
 const orientationMessage = document.getElementById("orientationMessage");
+const timerHint = document.getElementById("timerHint");
+const timerHintClose = document.getElementById("timerHintClose");
 const settingsBackBtn = document.getElementById("settingsBackBtn");
 const settingsAvatar = document.getElementById("settingsAvatar");
 const settingsAvatarFallback = document.getElementById("settingsAvatarFallback");
@@ -171,6 +175,7 @@ function showPage(id) {
   document.body.dataset.page = id;
   const lock = id === "timerBox" ? "landscape" : "portrait";
   setOrientationLock(lock);
+  updateTimerHintVisibility();
   if (id === "page1" || id === "page2") {
     lastMainPage = id;
   }
@@ -1725,6 +1730,13 @@ function updateResendVisibility() {
   authResendWrap.style.display = show ? "grid" : "none";
 }
 
+function updateTimerHintVisibility() {
+  if (!timerHint) return;
+  const pending = localStorage.getItem("ambientTimerHintPending") === "true";
+  const show = document.body.dataset.page === "timerBox" && pending;
+  timerHint.classList.toggle("visible", show);
+}
+
 function setOrientationLock(target) {
   if (!isTouchDevice) return;
   orientationLockTarget = target;
@@ -1912,6 +1924,11 @@ async function initAuth() {
   document.body.dataset.page = "pageHome";
   const hasVisited = localStorage.getItem("ambientHasVisited") === "true";
   if (!hasVisited) {
+    localStorage.setItem("ambientTimerHintPending", "true");
+  } else {
+    localStorage.setItem("ambientTimerHintPending", "false");
+  }
+  if (!hasVisited) {
     showPage("pageHome");
     localStorage.setItem("ambientHasVisited", "true");
   } else {
@@ -1935,6 +1952,7 @@ async function initAuth() {
     if (e.altKey && e.ctrlKey && e.code === "KeyU") {
       localStorage.removeItem("ambientHasVisited");
       localStorage.removeItem("ambientLastPage");
+      localStorage.removeItem("ambientTimerHintPending");
     }
   });
 
@@ -2027,6 +2045,14 @@ async function initAuth() {
     }
     transitionTo("page1");
   });
+
+  if (timerHintClose) {
+    timerHintClose.addEventListener("click", (e) => {
+      e.stopPropagation();
+      localStorage.setItem("ambientTimerHintPending", "false");
+      updateTimerHintVisibility();
+    });
+  }
 
   if (profileBtn) {
     profileBtn.addEventListener("click", () => {
@@ -2262,6 +2288,8 @@ function startTimerFromSeconds(totalSeconds) {
 
   remainingSeconds = totalSeconds;
   paused = false;
+  pauseStartedMs = null;
+  timerEndMs = Date.now() + totalSeconds * 1000;
 
   // Show timer page
   transitionTo("timerBox");
@@ -2275,19 +2303,19 @@ function startTimerFromSeconds(totalSeconds) {
   clearInterval(timerInterval);
 
   timerInterval = setInterval(() => {
-    if (!paused) {
-      remainingSeconds--;
+    if (paused) return;
+    const remainingMs = timerEndMs - Date.now();
+    remainingSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
 
-      if (remainingSeconds <= 0) {
-        clearInterval(timerInterval);
-        timerDisplay.textContent = "DONE";
-        playAlarmStandard();
-        return;
-      }
-
-      updateDisplay();
+    if (remainingSeconds <= 0) {
+      clearInterval(timerInterval);
+      timerDisplay.textContent = "DONE";
+      playAlarmStandard();
+      return;
     }
-  }, 1000);
+
+    updateDisplay();
+  }, 250);
 }
 
 /* ================================
@@ -2332,7 +2360,16 @@ function playAlarmStandard() {
    ================================ */
 
 timerDisplay.addEventListener("click", () => {
-  paused = !paused;
+  if (!paused) {
+    paused = true;
+    pauseStartedMs = Date.now();
+  } else {
+    paused = false;
+    if (pauseStartedMs) {
+      timerEndMs += Date.now() - pauseStartedMs;
+      pauseStartedMs = null;
+    }
+  }
   timerDisplay.style.opacity = paused ? "0.45" : "1";
 });
 
@@ -2344,7 +2381,16 @@ document.addEventListener("keydown", (e) => {
   }
   if (e.code === "Space") {
     e.preventDefault();
-    paused = !paused;
+    if (!paused) {
+      paused = true;
+      pauseStartedMs = Date.now();
+    } else {
+      paused = false;
+      if (pauseStartedMs) {
+        timerEndMs += Date.now() - pauseStartedMs;
+        pauseStartedMs = null;
+      }
+    }
     timerDisplay.style.opacity = paused ? "0.45" : "1";
   }
 });

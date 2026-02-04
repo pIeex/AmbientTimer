@@ -206,6 +206,41 @@ h1 {
   text-align: center;
 }
 
+.preview-hint {
+  margin-top: -6px;
+  margin-bottom: 4px;
+  font-size: 14px;
+  opacity: 0.85;
+  text-align: center;
+  user-select: none;
+  -webkit-user-select: none;
+  -ms-user-select: none;
+  background: rgba(0,0,0,0.1);
+  padding: 6px 12px;
+  border-radius: 12px;
+  display: inline-block;
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .preview-hint {
+    font-size: 13px;
+  }
+  .preview-hint[data-hint="hover"]::after {
+    content: "Press and hold to preview themes";
+  }
+  .preview-hint[data-hint="hover"] {
+    color: transparent;
+    position: relative;
+  }
+  .preview-hint[data-hint="hover"]::after {
+    color: rgba(245,245,245,0.7);
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+  }
+}
+
 .section-panel {
   width: min(96%, 1200px);
   background: rgba(0,0,0,0.5);
@@ -678,6 +713,17 @@ h1 {
 #timerBox {
   z-index: 50;
   justify-content: center;
+  padding: 0;
+  overflow: hidden;
+  width: 100vw;
+  height: 100vh;
+  overscroll-behavior: none;
+}
+
+@supports (height: 100dvh) {
+  #timerBox {
+    height: 100dvh;
+  }
 }
 
 #timerDisplay {
@@ -699,6 +745,37 @@ h1 {
 
   position: relative;
   z-index: 200;
+}
+
+.timer-hint {
+  margin-top: 14px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(10,10,14,0.6);
+  border: 1px solid rgba(255,255,255,0.2);
+  display: none;
+  align-items: center;
+  gap: 12px;
+  color: rgba(245,245,245,0.9);
+  font-size: 13px;
+  z-index: 210;
+  backdrop-filter: blur(6px);
+  user-select: none;
+  -webkit-user-select: none;
+  -ms-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.timer-hint.visible {
+  display: inline-flex;
+}
+
+.timer-hint .icon-btn {
+  padding: 4px 8px;
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1;
 }
 
 /* Cinematic Halo Fade */
@@ -1828,6 +1905,22 @@ body[data-auth="false"] #homeAuthed {
 @media (orientation: portrait) {
   #timerDisplay {
     font-size: clamp(70px, 16vw, 140px);
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .top-bar {
+    backdrop-filter: none;
+  }
+  .section-panel,
+  .toast,
+  .confirm-card,
+  .auth-card,
+  .settings-card {
+    box-shadow: none;
+  }
+  #timerBox::before {
+    display: none;
   }
 }
 

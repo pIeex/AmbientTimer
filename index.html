@@ -170,6 +170,7 @@
   <div id="page1" class="page">
     <div class="page-content">
       <h1>Choose Your Atmosphere</h1>
+      <p class="preview-hint" data-hint="hover">Hover over themes for preview</p>
       <h2 id="searchHeader" class="section-title search-title">Search:</h2>
 
       <h2 class="section-title">Built-in Themes</h2>
@@ -381,6 +382,10 @@
   <div id="timerBox" class="page">
     <button id="timerBackBtn" class="back-btn">Go back</button>
     <div id="timerDisplay">00:00</div>
+    <div id="timerHint" class="timer-hint" aria-live="polite">
+      <span>Click the timer to pause/unpause</span>
+      <button id="timerHintClose" class="icon-btn" aria-label="Close">×</button>
+    </div>
   </div>
 
   <!-- Script -->
