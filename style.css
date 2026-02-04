@@ -950,8 +950,37 @@ body[data-page="page2"] .profile-shell {
   line-height: 1.4;
 }
 
+.auth-resend {
+  display: none;
+  justify-content: center;
+}
+
+.auth-resend .ghost-btn {
+  width: 100%;
+  text-align: center;
+}
+
+.link-btn {
+  border: none;
+  background: transparent;
+  color: rgba(245,245,245,0.9);
+  cursor: pointer;
+  font-size: 13px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  padding: 6px 8px;
+}
+
+.link-btn:hover {
+  color: rgba(255,255,255,1);
+}
+
 .auth-body.confirming .auth-confirm {
   display: block;
+}
+
+.auth-body.confirming .auth-resend {
+  display: grid;
 }
 
 .auth-body.confirming .field,
@@ -960,6 +989,10 @@ body[data-page="page2"] .profile-shell {
 .auth-body.confirming .primary-btn,
 .auth-body.confirming .auth-message {
   display: none;
+}
+
+.auth-body .auth-resend {
+  margin-bottom: 4px;
 }
 
 .auth-or {

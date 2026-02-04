@@ -74,6 +74,8 @@ const authSubmitBtn = document.getElementById("authSubmitBtn");
 const authMessage = document.getElementById("authMessage");
 const authBody = document.querySelector(".auth-body");
 const authConfirmBox = document.getElementById("authConfirmBox");
+const authResendWrap = document.getElementById("authResendWrap");
+const authResendBtn = document.getElementById("authResendBtn");
 const toastContainer = document.getElementById("toastContainer");
 const settingsBackBtn = document.getElementById("settingsBackBtn");
 const settingsAvatar = document.getElementById("settingsAvatar");
@@ -133,6 +135,7 @@ let isForceRestarting = false;
 const pendingOnlineUrls = new Set();
 const pendingLocalSigs = new Set();
 let filterFitScheduled = false;
+let loginNeedsConfirm = false;
 const preloadSeen = new Set();
 const preloadQueue = [];
 let preloading = 0;
@@ -1676,6 +1679,7 @@ function setAuthMode(mode) {
   if (authBody) {
     authBody.classList.remove("confirming");
   }
+  loginNeedsConfirm = false;
   document.querySelectorAll(".auth-signup-only").forEach(el => {
     el.style.display = isSignup ? "grid" : "none";
   });
@@ -1700,12 +1704,20 @@ function setAuthMode(mode) {
     authPasswordConfirm.autocomplete = "new-password";
   }
   setMessage(authMessage, "", false);
+  updateResendVisibility();
 }
 
 function setMessage(el, text, isError = false) {
   if (!el) return;
   el.textContent = text;
   el.classList.toggle("error", isError);
+}
+
+function updateResendVisibility() {
+  if (!authResendWrap) return;
+  const isConfirming = authBody?.classList.contains("confirming");
+  const show = isConfirming || loginNeedsConfirm;
+  authResendWrap.style.display = show ? "grid" : "none";
 }
 
 async function handleLogout() {
@@ -1772,13 +1784,17 @@ async function handleAuthSubmit() {
     } else {
       if (authBody) authBody.classList.add("confirming");
       if (authConfirmBox) authConfirmBox.textContent = "Please check your email to confirm your account.";
+      updateResendVisibility();
     }
   } else {
     const { error } = await supabaseClient.auth.signInWithPassword({
       email,
       password
     });
-    setMessage(authMessage, error ? error.message : "Signed in successfully.", !!error);
+    const message = error?.message || "Signed in successfully.";
+    setMessage(authMessage, message, !!error);
+    loginNeedsConfirm = !!error && /confirm|confirmed/i.test(message);
+    updateResendVisibility();
     if (!error) closeAuth();
   }
 }
@@ -1927,6 +1943,37 @@ async function initAuth() {
   if (authCloseBtn) authCloseBtn.addEventListener("click", closeAuth);
   if (authSubmitBtn) authSubmitBtn.addEventListener("click", handleAuthSubmit);
   if (authGoogleBtn) authGoogleBtn.addEventListener("click", signInWithGoogle);
+  if (authResendBtn) authResendBtn.addEventListener("click", async () => {
+    if (!supabaseClient) return;
+    const email = (authEmail.value || "").trim();
+    if (!email) {
+      setMessage(authMessage, "Enter your email to resend confirmation.", true);
+      return;
+    }
+    if (!supabaseClient.auth.resend) {
+      setMessage(authMessage, "Resend not supported.", true);
+      return;
+    }
+    const { error } = await supabaseClient.auth.resend({
+      type: "signup",
+      email,
+      options: { emailRedirectTo: "https://pieex.github.io/AmbientTimer/" }
+    });
+    if (error) {
+      setMessage(authMessage, error.message, true);
+      showToast({
+        message: error.message || "Could not resend confirmation.",
+        type: "error",
+        durationMs: 2500
+      });
+    } else {
+      setMessage(authMessage, "Confirmation email sent.", false);
+      showToast({
+        message: "Confirmation email sent.",
+        durationMs: 2000
+      });
+    }
+  });
   if (authPassword && authPasswordConfirm) {
     const syncConfirm = () => {
       if (authMode === "signup") {
