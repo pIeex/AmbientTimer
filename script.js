@@ -1791,16 +1791,12 @@ function updateProfileUI() {
 async function initAuth() {
   supabaseClient = initSupabaseClient();
   document.body.dataset.page = "pageHome";
-  const last = localStorage.getItem("ambientLastPage");
-  const navEntry = performance.getEntriesByType("navigation")[0];
-  const navType = navEntry?.type || "navigate";
-  const isReload = navType === "reload";
-  if (isReload && last === "selector") {
-    showPage("page1");
-  } else if (isReload && last === "home") {
+  const hasVisited = localStorage.getItem("ambientHasVisited") === "true";
+  if (!hasVisited) {
     showPage("pageHome");
+    localStorage.setItem("ambientHasVisited", "true");
   } else {
-    showPage("pageHome");
+    showPage("page1");
   }
 
   const logo = document.querySelector(".logo-img");
@@ -1810,6 +1806,13 @@ async function initAuth() {
       goHomeWithFade();
     });
   }
+
+  document.addEventListener("keydown", (e) => {
+    if (e.altKey && e.ctrlKey && e.code === "KeyU") {
+      localStorage.removeItem("ambientHasVisited");
+      localStorage.removeItem("ambientLastPage");
+    }
+  });
 
   if (burgerBtn) burgerBtn.addEventListener("click", openMobileMenu);
   if (mobileMenuClose) mobileMenuClose.addEventListener("click", closeMobileMenu);
