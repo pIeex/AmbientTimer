@@ -143,6 +143,7 @@ const pendingLocalSigs = new Set();
 let filterFitScheduled = false;
 let loginNeedsConfirm = false;
 let orientationLockTarget = "portrait";
+let guestImportPrompting = false;
 const preloadSeen = new Set();
 const preloadQueue = [];
 let preloading = 0;
@@ -171,10 +172,16 @@ function showPage(id) {
     page.classList.remove("fade-out");
   });
 
-  document.getElementById(id).classList.add("active");
+  const pageEl = document.getElementById(id);
+  pageEl.classList.add("active");
   document.body.dataset.page = id;
   const lock = id === "timerBox" ? "landscape" : "portrait";
   setOrientationLock(lock);
+  pageEl.scrollTop = 0;
+  const content = pageEl.querySelector(".page-content");
+  if (content) content.scrollTop = 0;
+  document.documentElement.scrollTop = 0;
+  document.body.scrollTop = 0;
   updateTimerHintVisibility();
   if (id === "page1" || id === "page2") {
     lastMainPage = id;
@@ -1160,6 +1167,7 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
 
   if (!isLoggedIn()) {
     promptLoginToast();
+    markGuestThemesPending();
   }
 
   if (autoApply) {
@@ -1312,10 +1320,11 @@ async function handleAddOnlineTheme() {
           list.push(theme);
           setOnlineThemes(list);
         }
-        await renderOnlineTheme(theme);
-        promptLoginToast();
-        placeholder?.done();
-      }
+    await renderOnlineTheme(theme);
+    promptLoginToast();
+    markGuestThemesPending();
+    placeholder?.done();
+  }
     } else {
       const list = getOnlineThemes();
       const exists = list.some(item => item.url === theme.url && item.mediaType === theme.mediaType);
@@ -1737,6 +1746,85 @@ function updateTimerHintVisibility() {
   timerHint.classList.toggle("visible", show);
 }
 
+function markGuestThemesPending() {
+  localStorage.setItem("ambientGuestImportHandled", "false");
+}
+
+async function maybePromptGuestImport() {
+  if (!currentUser || guestImportPrompting) return;
+  if (localStorage.getItem("ambientGuestImportHandled") === "true") return;
+  const localList = await loadLocalThemes();
+  const onlineList = getOnlineThemes();
+  if (!localList.length && !onlineList.length) return;
+
+  guestImportPrompting = true;
+  const ok = await openConfirm({
+    title: "Add previous themes?",
+    message: "We found themes added while you were a guest. Add them to your account?"
+  });
+  localStorage.setItem("ambientGuestImportHandled", "true");
+
+  if (ok) {
+    await migrateGuestThemes(localList, onlineList);
+    showToast({
+      message: "Previous themes added.",
+      durationMs: 2000
+    });
+  }
+  guestImportPrompting = false;
+}
+
+async function migrateGuestThemes(localList, onlineList) {
+  if (!supabaseClient || !currentUser) return;
+
+  const cloudLocalNames = new Set(
+    getCloudThemesByKind("local").map(t => (t.name || "").toLowerCase())
+  );
+  const cloudOnlineUrls = new Set(
+    getCloudThemesByKind("online").map(t => normalizeUrl(t.src || ""))
+  );
+
+  const sigSeen = new Set();
+  for (const item of localList) {
+    if (!item.blob) continue;
+    const sig = item.sig || `${item.name}|${item.blob.size}|${item.blob.type}`;
+    if (sigSeen.has(sig)) continue;
+    const name = item.name || deriveNameFromFile(item.blob);
+    if (cloudLocalNames.has(name.toLowerCase())) continue;
+    await addLocalThemeFromFile(item.blob, false, {
+      existingSigSet: sigSeen,
+      cloudNameSet: cloudLocalNames
+    });
+    sigSeen.add(sig);
+    cloudLocalNames.add(name.toLowerCase());
+  }
+
+  const remainingOnline = [];
+  for (const item of onlineList) {
+    const url = normalizeUrl(item.url || "");
+    if (!url || cloudOnlineUrls.has(url)) continue;
+    const mediaType = item.mediaType || getMediaTypeFromUrl(url);
+    if (!mediaType) continue;
+    const name = item.name || deriveNameFromUrl(url);
+    const result = await saveCloudThemeRecord({
+      kind: "online",
+      mediaType,
+      url,
+      name
+    });
+    if (result?.data) {
+      cloudOnlineUrls.add(url);
+    } else {
+      remainingOnline.push(item);
+    }
+  }
+
+  setOnlineThemes(remainingOnline);
+  await loadCloudThemes();
+  loadAndRenderLocalThemes();
+  loadAndRenderOnlineThemes();
+}
+
 function setOrientationLock(target) {
   if (!isTouchDevice) return;
   orientationLockTarget = target;
@@ -1750,6 +1838,11 @@ function setOrientationLock(target) {
   if (screen.orientation && screen.orientation.lock) {
     screen.orientation.lock(target).catch(() => {});
   }
+}
+
+function syncOrientationLock() {
+  const target = document.body.dataset.page === "timerBox" ? "landscape" : "portrait";
+  setOrientationLock(target);
 }
 
 async function handleLogout() {
@@ -1928,6 +2021,9 @@ async function initAuth() {
   } else {
     localStorage.setItem("ambientTimerHintPending", "false");
   }
+  if (!localStorage.getItem("ambientGuestImportHandled")) {
+    localStorage.setItem("ambientGuestImportHandled", "true");
+  }
   if (!hasVisited) {
     showPage("pageHome");
     localStorage.setItem("ambientHasVisited", "true");
@@ -1953,6 +2049,7 @@ async function initAuth() {
       localStorage.removeItem("ambientHasVisited");
       localStorage.removeItem("ambientLastPage");
       localStorage.removeItem("ambientTimerHintPending");
+      localStorage.removeItem("ambientGuestImportHandled");
     }
   });
 
@@ -1980,6 +2077,13 @@ async function initAuth() {
     openAuth("signup");
   });
   if (mobileMenuLogoutBtn) mobileMenuLogoutBtn.addEventListener("click", handleLogout);
+
+  window.addEventListener("pageshow", () => syncOrientationLock());
+  window.addEventListener("resize", () => syncOrientationLock());
+  window.addEventListener("orientationchange", () => syncOrientationLock());
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) syncOrientationLock();
+  });
 
   if (authTabLogin) authTabLogin.addEventListener("click", () => setAuthMode("login"));
   if (authTabSignup) authTabSignup.addEventListener("click", () => setAuthMode("signup"));
@@ -2222,6 +2326,7 @@ async function refreshAuthState() {
   await loadCloudThemes();
   loadAndRenderLocalThemes();
   loadAndRenderOnlineThemes();
+  await maybePromptGuestImport();
 }
 
 async function loadCloudThemes() {
