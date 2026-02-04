@@ -802,6 +802,11 @@ body[data-page="page2"] .profile-shell {
   gap: 8px;
 }
 
+.profile-menu.guest #profileSettingsBtn,
+.profile-menu.guest #profileLogoutBtn {
+  display: none;
+}
+
 .menu-btn {
   padding: 10px 12px;
   border-radius: 12px;
@@ -996,6 +1001,24 @@ body[data-page="page2"] .profile-shell {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.settings-header .icon-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.18);
+  background: rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.9);
+  font-size: 18px;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+}
+
+.settings-header .icon-btn:hover {
+  background: rgba(255,255,255,0.22);
+  transform: translateY(-1px);
 }
 
 .settings-card {

@@ -1864,6 +1864,7 @@ function updateProfileUI() {
   if (profileSignupBtn) profileSignupBtn.style.display = loggedIn ? "none" : "block";
   if (profileLogoutBtn) profileLogoutBtn.style.display = loggedIn ? "block" : "none";
   if (profileSettingsBtn) profileSettingsBtn.style.display = loggedIn ? "block" : "none";
+  if (profileMenu) profileMenu.classList.toggle("guest", !loggedIn);
 
   document.body.dataset.auth = loggedIn ? "true" : "false";
   if (homeUsername) homeUsername.textContent = loggedIn ? name : "";
