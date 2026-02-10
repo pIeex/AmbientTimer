@@ -187,6 +187,7 @@ const MAX_PRELOAD = IS_LOW_END_DEVICE ? 1 : 2;
 const MAX_BACKGROUND_VIDEO_PRELOADS = IS_LOW_END_DEVICE ? 5 : 14;
 const BUILTIN_REMOTE_VIDEO_PRELOAD_LIMIT = IS_LOW_END_DEVICE ? 3 : 10;
 const MAX_VIDEO_WARM_INFLIGHT = IS_LOW_END_DEVICE ? 1 : 2;
+const CLOUD_SAVE_TIMEOUT_MS = IS_SLOW_NETWORK ? 22000 : 14000;
 let builtInThemes = [];
 let queuedVideoPreloads = 0;
 const warmingVideoUrls = new Set();
@@ -1514,40 +1515,67 @@ function getCloudThemesByKind(kind) {
     .map(mapCloudTheme);
 }
 
+function withTimeout(promise, timeoutMs, timeoutMessage) {
+  let timeoutId = null;
+  return Promise.race([
+    promise,
+    new Promise((resolve) => {
+      timeoutId = setTimeout(() => {
+        resolve({
+          data: null,
+          error: { message: timeoutMessage || "Request timed out." }
+        });
+      }, timeoutMs);
+    })
+  ]).finally(() => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  });
+}
+
 async function saveCloudThemeRecord({ kind, mediaType, url, storagePath = "", name = "Untitled" }) {
   if (!supabaseClient || !currentUser) return null;
-  const payload = {
+  const basePayload = {
     user_id: currentUser.id,
     kind,
     media_type: mediaType,
-    name,
-    url,
-    storage_path: storagePath
+    url
   };
-  const { data, error } = await supabaseClient
-    .from("themes")
-    .insert(payload)
-    .select("*")
-    .single();
-  if (!error) return { data, error: null };
-  if (!isMissingThemesNameColumnError(error)) return { data: null, error };
+  const attempts = [
+    { ...basePayload, name, storage_path: storagePath },
+    { ...basePayload, storage_path: storagePath },
+    { ...basePayload, name },
+    { ...basePayload }
+  ];
+  const seen = new Set();
+  let lastError = null;
 
-  themesNameColumnAvailable = false;
-  notifyThemesNameColumnMissing();
-  const fallbackPayload = {
-    user_id: currentUser.id,
-    kind,
-    media_type: mediaType,
-    url,
-    storage_path: storagePath
-  };
-  const fallback = await supabaseClient
-    .from("themes")
-    .insert(fallbackPayload)
-    .select("*")
-    .single();
-  if (fallback.error) return { data: null, error: fallback.error };
-  return { data: fallback.data, error: null };
+  for (const payload of attempts) {
+    const key = JSON.stringify(payload);
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const { data, error } = await supabaseClient
+      .from("themes")
+      .insert(payload)
+      .select("*")
+      .single();
+    if (!error) return { data, error: null };
+
+    lastError = error;
+    const missingName = isMissingThemesNameColumnError(error);
+    const missingStoragePath = isMissingThemesStoragePathColumnError(error);
+    if (missingName) {
+      themesNameColumnAvailable = false;
+      notifyThemesNameColumnMissing();
+    }
+    if (!missingName && !missingStoragePath) {
+      break;
+    }
+  }
+
+  return { data: null, error: lastError };
 }
 
 function getErrorMessage(err, fallback = "Unknown error") {
@@ -1569,6 +1597,15 @@ function isMissingThemesNameColumnError(err) {
     msg.includes("could not find the 'name' column of 'themes'") ||
     (msg.includes("column") && msg.includes("name") && msg.includes("themes")) ||
     (msg.includes("schema cache") && msg.includes("name"))
+  );
+}
+
+function isMissingThemesStoragePathColumnError(err) {
+  const msg = getErrorMessage(err, "").toLowerCase();
+  return (
+    msg.includes("could not find the 'storage_path' column of 'themes'") ||
+    (msg.includes("column") && msg.includes("storage_path") && msg.includes("themes")) ||
+    (msg.includes("schema cache") && msg.includes("storage_path"))
   );
 }
 
@@ -1972,27 +2009,48 @@ async function handleAddOnlineTheme() {
 
   const placeholder = createUploadPlaceholder(onlineThemesGrid, theme.name);
   let uploadCompleted = false;
+  let postRenderTask = null;
 
   try {
     if (isLoggedIn() && supabaseClient) {
-      const result = await saveCloudThemeRecord({
-        kind: "online",
-        mediaType,
-        url,
-        name: theme.name
-      });
-      if (result?.data) {
-        const record = result.data;
-        await loadCloudThemes();
-        await renderOnlineTheme({
-          id: record.id,
+      const result = await withTimeout(
+        saveCloudThemeRecord({
           kind: "online",
           mediaType,
-          url: record.url,
-          name: record.name || theme.name,
+          url,
+          name: theme.name
+        }),
+        CLOUD_SAVE_TIMEOUT_MS,
+        "Cloud save timed out. Please try again."
+      );
+      if (result?.data) {
+        const record = result.data;
+        const recordUrl = record.url || theme.url;
+        const recordName = record.name || theme.name;
+        const recordMediaType = record.media_type || mediaType;
+        const cachedRecord = {
+          ...record,
+          kind: record.kind || "online",
+          media_type: recordMediaType,
+          name: recordName,
+          url: recordUrl
+        };
+        cloudThemesCache = [
+          cachedRecord,
+          ...cloudThemesCache.filter(item => item.id !== cachedRecord.id)
+        ];
+        postRenderTask = renderOnlineTheme({
+          id: record.id,
+          kind: "online",
+          mediaType: recordMediaType,
+          url: recordUrl,
+          name: recordName,
           createdAt: record.created_at ? Date.parse(record.created_at) : Date.now(),
           storagePath: record.storage_path || "",
           source: "cloud"
+        });
+        void loadCloudThemes().catch((err) => {
+          console.error("Cloud theme sync failed:", err);
         });
         uploadCompleted = true;
       } else {
@@ -2009,7 +2067,7 @@ async function handleAddOnlineTheme() {
         list.push(theme);
         setOnlineThemes(list);
       }
-      await renderOnlineTheme(theme);
+      postRenderTask = renderOnlineTheme(theme);
       promptLoginToast();
       uploadCompleted = true;
     }
@@ -2027,6 +2085,12 @@ async function handleAddOnlineTheme() {
     }
     pendingOnlineUrls.delete(themeKey);
     onlineUrlInput.value = "";
+    if (postRenderTask) {
+      Promise.resolve(postRenderTask).catch((err) => {
+        console.error("Online theme render failed:", err);
+        loadAndRenderOnlineThemes();
+      });
+    }
   }
 }
 
