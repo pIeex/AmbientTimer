@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Ambient Timer</title>
   <link rel="icon" href="assests/icon.png">
-  <link rel="stylesheet" href="style.css?v=20260204e">
+  <link rel="stylesheet" href="style.css?v=20260204i">
 </head>
 
 <body>
@@ -162,7 +162,7 @@
         <button id="homeGoThemesBtn" class="primary-btn">Go to theme selection</button>
       </div>
     </div>
-    <div class="version-tag">[1.4]</div>
+    <div class="version-tag">[1.8]</div>
   </div>
 
   <!-- ============================= -->
@@ -172,8 +172,38 @@
     <div class="page-content">
       <h1>Choose Your Atmosphere</h1>
       <p class="preview-hint" data-hint="hover">Hover over themes for preview</p>
+      <div id="themeViewControls" class="view-controls">
+        <button id="viewDefaultBtn" class="view-btn active" data-tip="Default view" aria-label="Default view">&#9638;</button>
+        <button id="viewUploadsBtn" class="view-btn" data-tip="Uploads view" aria-label="Uploads view">&#8801;</button>
+        <button id="viewAllBtn" class="view-btn" data-tip="All themes view" aria-label="All themes view">&#9635;</button>
+      </div>
+      <div id="allThemesSortWrap" class="sort-wrap" hidden>
+        <select id="allThemesSort" class="sort-select">
+          <option value="name">Sort by name</option>
+          <option value="date">Sort by date added</option>
+          <option value="recent">Sort by recently used</option>
+          <option value="used">Sort by most used themes</option>
+        </select>
+        <button id="allThemesFilterBtn" class="filter-btn" type="button" aria-expanded="false">Filter</button>
+        <div id="allThemesFilterPanel" class="filter-panel" hidden>
+          <label class="filter-option">
+            <input id="filterVideo" type="checkbox" checked>
+            <span>Videos</span>
+          </label>
+          <label class="filter-option">
+            <input id="filterImage" type="checkbox" checked>
+            <span>Images</span>
+          </label>
+        </div>
+      </div>
       <h2 id="searchHeader" class="section-title search-title">Search:</h2>
 
+      <div id="recentSection" hidden>
+        <h2 class="section-title">Recent Themes</h2>
+        <div class="grid default-grid" id="recentThemesGrid"></div>
+      </div>
+
+      <div id="builtInSection">
       <h2 class="section-title">Built-in Themes</h2>
       <div class="grid default-grid" id="defaultThemes">
 
@@ -248,9 +278,10 @@
         </div>
 
       </div>
+      </div>
 
-      <div class="section-panel panel-stack">
-        <div class="panel-block">
+      <div id="uploadsSection" class="section-panel panel-stack">
+        <div id="localPanelBlock" class="panel-block">
           <h2 class="section-title">Your Themes</h2>
         <div class="controls panel-controls">
           <div class="controls-main">
@@ -258,7 +289,7 @@
               <label class="upload">
                 Upload Files
                 <input id="localUploadInput" type="file"
-                  accept="video/mp4,image/png,image/jpeg"
+                  accept="video/mp4,image/png,image/jpeg,.pkg"
                   multiple>
               </label>
               <div class="upload-dropdown">
@@ -268,7 +299,7 @@
                 </div>
               </div>
               <input id="localFolderInput" type="file"
-                accept="video/mp4,image/png,image/jpeg"
+                accept="video/mp4,image/png,image/jpeg,.pkg"
                 multiple webkitdirectory directory hidden>
             </div>
           </div>
@@ -280,7 +311,7 @@
         <div class="grid auto-grid" id="localThemesGrid"></div>
       </div>
 
-        <div class="panel-block">
+        <div id="onlinePanelBlock" class="panel-block">
           <h2 class="section-title">Online Themes</h2>
         <div class="controls panel-controls">
           <div class="controls-main">
@@ -296,8 +327,13 @@
         <div class="grid auto-grid" id="onlineThemesGrid"></div>
       </div>
       </div>
+
+      <div id="allThemesSection" class="section-panel" hidden>
+        <h2 class="section-title">All Themes</h2>
+        <div class="grid auto-grid" id="allThemesGrid"></div>
+      </div>
     </div>
-    <div class="version-tag">[1.4]</div>
+    <div class="version-tag">[1.8]</div>
   </div>
 
   <!-- ============================= -->
@@ -328,7 +364,7 @@
         <button class="startCustom" onclick="startCustomTimer()">Start</button>
       </div>
     </div>
-    <div class="version-tag">[1.4]</div>
+    <div class="version-tag">[1.8]</div>
   </div>
 
   <!-- ============================= -->
@@ -377,7 +413,7 @@
         <p id="settingsMessage" class="auth-message"></p>
       </div>
     </div>
-    <div class="version-tag">[1.4]</div>
+    <div class="version-tag">[1.8]</div>
   </div>
 
   <!-- ============================= -->
@@ -394,7 +430,7 @@
 
   <!-- Script -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="script.js?v=20260204e"></script>
+  <script src="script.js?v=20260204i"></script>
 
 </body>
 </html>

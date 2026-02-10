@@ -95,10 +95,30 @@ const settingsPasswordHint = document.getElementById("settingsPasswordHint");
 const settingsSaveBtn = document.getElementById("settingsSaveBtn");
 const settingsDeleteBtn = document.getElementById("settingsDeleteBtn");
 const settingsMessage = document.getElementById("settingsMessage");
+const localPanelBlock = document.getElementById("localPanelBlock");
+const onlinePanelBlock = document.getElementById("onlinePanelBlock");
+const recentSection = document.getElementById("recentSection");
+const recentThemesGrid = document.getElementById("recentThemesGrid");
+const builtInSection = document.getElementById("builtInSection");
+const uploadsSection = document.getElementById("uploadsSection");
+const allThemesSection = document.getElementById("allThemesSection");
+const allThemesGrid = document.getElementById("allThemesGrid");
+const viewDefaultBtn = document.getElementById("viewDefaultBtn");
+const viewUploadsBtn = document.getElementById("viewUploadsBtn");
+const viewAllBtn = document.getElementById("viewAllBtn");
+const allThemesSortWrap = document.getElementById("allThemesSortWrap");
+const allThemesSort = document.getElementById("allThemesSort");
+const allThemesFilterBtn = document.getElementById("allThemesFilterBtn");
+const allThemesFilterPanel = document.getElementById("allThemesFilterPanel");
+const filterVideo = document.getElementById("filterVideo");
+const filterImage = document.getElementById("filterImage");
 
 const LOCAL_DB_NAME = "ambientTimerThemes";
 const LOCAL_STORE_NAME = "localThemes";
 const ONLINE_STORAGE_KEY = "ambientTimerOnlineThemes";
+const THEME_RECENT_KEY = "ambientRecentThemes";
+const THEME_USAGE_KEY = "ambientThemeUsage";
+const GUEST_SAVE_TOAST_SEEN_KEY = "ambientGuestSaveToastSeen";
 
 const SUPABASE_URL = window.SUPABASE_URL || "https://fytjxvaxxtmnaoynpxqy.supabase.co";
 const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5dGp4dmF4eHRtbmFveW5weHF5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAxMTMzMjEsImV4cCI6MjA4NTY4OTMyMX0.CxVEQUgYEfkVqtyj78pyDCuWfgqU98r3oFTzS7ijM-0";
@@ -129,6 +149,8 @@ let hoverPreviewTimer = null;
 const HOVER_PREVIEW_DELAY_MS = 200;
 let currentPreviewTheme = { mediaType: "image", src: DEFAULT_BG_SRC };
 let currentMediaMode = "image";
+let currentThemeView = "default";
+const allThemesMediaFilter = { video: true, image: true };
 let videoWatchdog = null;
 let localRenderToken = 0;
 let onlineRenderToken = 0;
@@ -149,7 +171,60 @@ const preloadSeen = new Set();
 const preloadQueue = [];
 let preloading = 0;
 let preloadScheduled = false;
-const MAX_PRELOAD = 2;
+const connectionInfo = navigator.connection || navigator.mozConnection || navigator.webkitConnection || null;
+const DEVICE_MEMORY_GB = Number(navigator.deviceMemory || 0);
+const CPU_CORES = Number(navigator.hardwareConcurrency || 0);
+const IS_DATA_SAVER = Boolean(connectionInfo && connectionInfo.saveData);
+const EFFECTIVE_TYPE = String(connectionInfo?.effectiveType || "").toLowerCase();
+const IS_SLOW_NETWORK = /(^|[^a-z])(slow-2g|2g)([^a-z]|$)/.test(EFFECTIVE_TYPE);
+const IS_LOW_END_DEVICE = (
+  (DEVICE_MEMORY_GB > 0 && DEVICE_MEMORY_GB <= 4) ||
+  (CPU_CORES > 0 && CPU_CORES <= 4) ||
+  IS_DATA_SAVER ||
+  IS_SLOW_NETWORK
+);
+const MAX_PRELOAD = IS_LOW_END_DEVICE ? 1 : 2;
+const MAX_BACKGROUND_VIDEO_PRELOADS = IS_LOW_END_DEVICE ? 5 : 14;
+const BUILTIN_REMOTE_VIDEO_PRELOAD_LIMIT = IS_LOW_END_DEVICE ? 3 : 10;
+const MAX_VIDEO_WARM_INFLIGHT = IS_LOW_END_DEVICE ? 1 : 2;
+let builtInThemes = [];
+let queuedVideoPreloads = 0;
+const warmingVideoUrls = new Set();
+const warmedVideoUrls = new Set();
+let recentRenderSignature = "";
+let allThemesRenderSignature = "";
+const EXTRA_BUILTIN_THEMES = [
+  { name: "Waterfall of Godafoss", src: "https://motionbgs.com/dl/hd/6", preview: "https://motionbgs.com/media/6/waterfall-of-godafoss-in-iceland.1920x1080.jpg", captureFirstFrame: true },
+  { name: "Green Grass", src: "https://motionbgs.com/dl/hd/34", preview: "https://motionbgs.com/media/34/green-grass.1920x1080.jpg", captureFirstFrame: true },
+  { name: "Ireland Beach", src: "https://motionbgs.com/dl/hd/35", preview: "https://motionbgs.com/media/35/irlandbeach.1920x1080.jpg", captureFirstFrame: true },
+  { name: "Under the Cherry Tree", src: "https://motionbgs.com/dl/hd/36", preview: "https://motionbgs.com/media/36/under-the-cherry-tree.1920x1080.jpg", captureFirstFrame: true },
+  { name: "Raining", src: "https://motionbgs.com/dl/hd/55", preview: "https://motionbgs.com/media/55/raining.1920x1080.jpg", captureFirstFrame: true },
+  { name: "Forest Stream", src: "https://motionbgs.com/dl/hd/113", preview: "https://motionbgs.com/media/113/forest-stream.1920x1080.jpg", captureFirstFrame: true },
+  { name: "Glow Sunset", src: "https://motionbgs.com/dl/hd/115", preview: "https://motionbgs.com/media/115/glow-sunset.1920x1080.jpg", captureFirstFrame: true },
+  { name: "Snowy in the Forest", src: "https://motionbgs.com/dl/hd/441", preview: "https://motionbgs.com/media/441/snowy-in-the-forest.jpg", captureFirstFrame: true },
+  { name: "Road in Forest", src: "https://motionbgs.com/dl/hd/712", preview: "https://motionbgs.com/media/712/road-in-forest.jpg", captureFirstFrame: true },
+  { name: "Sunset", src: "https://motionbgs.com/dl/hd/717", preview: "https://motionbgs.com/media/717/sunset.jpg", captureFirstFrame: true },
+  { name: "Raindrop", src: "https://motionbgs.com/dl/hd/718", preview: "https://motionbgs.com/media/718/raindrop.jpg", captureFirstFrame: true },
+  { name: "Winter Mountain Sunset", src: "https://motionbgs.com/dl/hd/724", preview: "https://motionbgs.com/media/724/winter-mountain-sunset.jpg", captureFirstFrame: true },
+  { name: "Autumn Forest", src: "https://motionbgs.com/dl/hd/730", preview: "https://motionbgs.com/media/730/autumn-forest.jpg", captureFirstFrame: true },
+  { name: "Autumn Lake", src: "https://motionbgs.com/dl/hd/731", preview: "https://motionbgs.com/media/731/autumn-lake.jpg", captureFirstFrame: true },
+  { name: "Fantasy Autumn Forest", src: "https://motionbgs.com/dl/hd/742", preview: "https://motionbgs.com/media/742/fantasy-autumn-forest.jpg", captureFirstFrame: true },
+  { name: "Blue Lake Near Pine Trees", src: "https://motionbgs.com/dl/hd/751", preview: "https://motionbgs.com/media/751/blue-lake-near-pine-trees.jpg", captureFirstFrame: true },
+  { name: "Mountain Landscape in Autumn", src: "https://motionbgs.com/dl/hd/758", preview: "https://motionbgs.com/media/758/mountain-landscape-in-autumn.jpg", captureFirstFrame: true },
+  { name: "Autumn Landscape", src: "https://motionbgs.com/dl/hd/763", preview: "https://motionbgs.com/media/763/autumn-landscape.jpg", captureFirstFrame: true },
+  { name: "Winter Landscape", src: "https://motionbgs.com/dl/hd/764", preview: "https://motionbgs.com/media/764/winter-landscape.jpg", captureFirstFrame: true },
+  { name: "Sakura Tree Landscape", src: "https://motionbgs.com/dl/hd/780", preview: "https://motionbgs.com/media/780/sakura-tree-landscape.jpg", captureFirstFrame: true },
+  { name: "Nature Wallpaper", src: "https://www.desktophut.com/files/1673973739-1673973739-nature-wallpaper.mp4", preview: "https://www.desktophut.com/images/thumb_1673973739_328798.jpg", captureFirstFrame: true },
+  { name: "Nature 31377", src: "https://www.desktophut.com/files/1672909223-1672909223-nature---31377.mp4", preview: "https://www.desktophut.com/images/thumb_1672909223_932203.jpg", captureFirstFrame: true },
+  { name: "Nature Flower and Grass", src: "https://www.desktophut.com/files/1657547525-1657547525-nature-flower-and-grass-live-wallpaper-for-phone.mp4", preview: "https://www.desktophut.com/images/thumb_1657547525_889742.jpg", captureFirstFrame: true },
+  { name: "Nature in a Lightbulb", src: "https://www.desktophut.com/files/1655314510-1655314510-nature-in-a-lightbulb-hd-live-wallpaper-for-pc.mp4", preview: "https://www.desktophut.com/images/thumb_1655314510_929198.jpg", captureFirstFrame: true },
+  { name: "Forest Drone", src: "https://www.desktophut.com/files/1675384614-1675384614-forest-drone-live-wallpaper.mp4", preview: "https://www.desktophut.com/images/thumb_1675384614_448703.jpg", captureFirstFrame: true },
+  { name: "Forest Tower", src: "https://www.desktophut.com/files/1675010255-1675010255-forest-tower.mp4", preview: "https://www.desktophut.com/images/thumb_1675010255_118528.jpg", captureFirstFrame: true },
+  { name: "Forest Fox Waterfall", src: "https://www.desktophut.com/files/1657545749-1657545749-forest-fox-waterfall-fall-wallpaper-iphone.mp4", preview: "https://www.desktophut.com/images/thumb_1657545749_637385.jpg", captureFirstFrame: true },
+  { name: "Forest Capsule", src: "https://www.desktophut.com/files/1655315590-1655315590-forest-capsule-hd-live-wallpaper-for-pc.mp4", preview: "https://www.desktophut.com/images/thumb_1655315590_241633.jpg", captureFirstFrame: true },
+  { name: "Forest Spirits", src: "https://www.desktophut.com/files/1655315524-1655315524-forest-spirits-hd-live-wallpaper-for-pc.mp4", preview: "https://www.desktophut.com/images/thumb_1655315524_993962.jpg", captureFirstFrame: true },
+  { name: "Forest Maze", src: "https://www.desktophut.com/files/1655315445-1655315445-forest-maze-hd-live-wallpaper-for-pc.mp4", preview: "https://www.desktophut.com/images/thumb_1655315445_533485.jpg", captureFirstFrame: true }
+];
 const hoverQuery = window.matchMedia("(hover: hover) and (pointer: fine)");
 const touchQuery = window.matchMedia("(hover: none), (pointer: coarse)");
 let supportsHover = hoverQuery.matches;
@@ -271,6 +346,7 @@ function applyTheme(theme, { previewOnly = false } = {}) {
   }
 
   if (!previewOnly) {
+    recordThemeSelection(theme);
     confirmedTheme = { mediaType: theme.mediaType, src: theme.src };
     currentPreviewTheme = { mediaType: theme.mediaType, src: theme.src };
     transitionTo("page2");
@@ -284,6 +360,10 @@ function setMediaMode(mediaType) {
   document.body.dataset.media = mode;
 }
 
+function getThemeUrlKey(url, mediaType) {
+  return normalizeUrl(url);
+}
+
 function getMediaTypeFromUrl(url) {
   let clean = "";
   try {
@@ -295,6 +375,313 @@ function getMediaTypeFromUrl(url) {
   if (/\.(mp4)$/.test(clean) || clean.includes(".mp4")) return "video";
   if (/\.(png|jpg|jpeg)$/.test(clean) || clean.includes(".png") || clean.includes(".jpg") || clean.includes(".jpeg")) return "image";
   return null;
+}
+
+function getMediaTypeFromFile(file) {
+  const type = (file?.type || "").toLowerCase();
+  const name = (file?.name || "").toLowerCase();
+  if (type.startsWith("video") || name.endsWith(".mp4")) return "video";
+  if (type.startsWith("image") || name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg")) return "image";
+  if (name.endsWith(".pkg")) return "pkg";
+  return null;
+}
+
+function getThemeIdentity(theme) {
+  return `${theme.mediaType || "image"}|${normalizeSrc(theme.src || "")}`;
+}
+
+function readStoredJson(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+function getThemeUsageMap() {
+  const value = readStoredJson(THEME_USAGE_KEY, {});
+  return value && typeof value === "object" ? value : {};
+}
+
+function setThemeUsageMap(map) {
+  localStorage.setItem(THEME_USAGE_KEY, JSON.stringify(map || {}));
+}
+
+function getRecentThemes() {
+  const list = readStoredJson(THEME_RECENT_KEY, []);
+  return Array.isArray(list) ? list : [];
+}
+
+function setRecentThemes(list) {
+  localStorage.setItem(THEME_RECENT_KEY, JSON.stringify(Array.isArray(list) ? list : []));
+}
+
+function recordThemeSelection(theme) {
+  if (!theme || !theme.src) return;
+  const now = Date.now();
+  const key = getThemeIdentity(theme);
+  const usage = getThemeUsageMap();
+  const current = usage[key] || { count: 0, lastUsed: 0 };
+  usage[key] = {
+    count: Number(current.count || 0) + 1,
+    lastUsed: now
+  };
+  setThemeUsageMap(usage);
+
+  const recent = getRecentThemes().filter(item => item.key !== key);
+  recent.unshift({
+    key,
+    id: theme.id || "",
+    kind: theme.kind || "",
+    src: theme.src,
+    mediaType: theme.mediaType || "image",
+    name: theme.name || "Theme",
+    preview: theme.preview || "",
+    createdAt: theme.createdAt || now
+  });
+  setRecentThemes(recent.slice(0, 4));
+  renderRecentThemes();
+  if (currentThemeView === "all") {
+    renderAllThemesGrid();
+  }
+}
+
+function buildRecentThemeLookups() {
+  const byKey = new Map();
+  const byId = new Map();
+  const byNameType = new Map();
+  const selectors = ["#defaultThemes .thumb", "#localThemesGrid .thumb", "#onlineThemesGrid .thumb"];
+
+  selectors.forEach((selector) => {
+    document.querySelectorAll(selector).forEach((card) => {
+      const theme = extractThemeFromCard(card);
+      if (!theme || !theme.src) return;
+      const key = getThemeIdentity(theme);
+      if (!byKey.has(key)) byKey.set(key, theme);
+      if (theme.id && !byId.has(theme.id)) byId.set(theme.id, theme);
+      const nameKey = `${theme.mediaType || "image"}|${(theme.name || "").trim().toLowerCase()}`;
+      if (nameKey && !byNameType.has(nameKey)) byNameType.set(nameKey, theme);
+    });
+  });
+
+  return { byKey, byId, byNameType };
+}
+
+function resolveRecentThemeItem(item, lookups) {
+  if (!item) return null;
+  if (item.key && lookups.byKey.has(item.key)) {
+    const live = lookups.byKey.get(item.key);
+    return { ...item, ...live, key: getThemeIdentity(live) };
+  }
+  if (item.id && lookups.byId.has(item.id)) {
+    const live = lookups.byId.get(item.id);
+    return { ...item, ...live, key: getThemeIdentity(live) };
+  }
+  const nameKey = `${item.mediaType || "image"}|${(item.name || "").trim().toLowerCase()}`;
+  if (nameKey && lookups.byNameType.has(nameKey)) {
+    const live = lookups.byNameType.get(nameKey);
+    return { ...item, ...live, key: getThemeIdentity(live) };
+  }
+  if (typeof item.src === "string" && item.src.startsWith("blob:")) {
+    return item.id || item.kind === "local" ? { ...item, unresolvedBlob: true } : null;
+  }
+  return item.src ? item : null;
+}
+
+function appendExtraBuiltInThemes() {
+  const grid = document.getElementById("defaultThemes");
+  if (!grid) return;
+  EXTRA_BUILTIN_THEMES.forEach((item, index) => {
+    const existing = grid.querySelector(`.thumb[data-src="${CSS.escape(item.src)}"]`);
+    if (existing) return;
+    const card = document.createElement("div");
+    card.className = "thumb";
+    card.dataset.name = item.name;
+    card.dataset.src = item.src;
+    card.dataset.type = "video";
+    card.dataset.createdAt = String(1000 + index);
+    card.dataset.preview = item.preview || "";
+    if (item.captureFirstFrame) card.dataset.needsFrame = "1";
+    if (item.preview) {
+      card.style.backgroundImage = `url('${item.preview}')`;
+    }
+    card.innerHTML = `<div class="thumb-meta"><span class="thumb-name">${item.name}</span></div>`;
+    grid.appendChild(card);
+  });
+}
+
+function hydrateBuiltInPreview(card, theme) {
+  if (!card || !theme || theme.mediaType !== "video" || !theme.src) return;
+  if (IS_LOW_END_DEVICE && card.dataset.preview) {
+    card.dataset.needsFrame = "0";
+    return;
+  }
+  const forceFirstFrame = card.dataset.needsFrame === "1";
+  if (!forceFirstFrame && (card.dataset.preview || extractBgUrl(card.style.backgroundImage || ""))) return;
+  captureVideoFrame(theme.src).then((preview) => {
+    if (!preview || !card.isConnected) return;
+    card.dataset.preview = preview;
+    card.dataset.needsFrame = "0";
+    card.style.backgroundImage = `url('${preview}')`;
+    theme.preview = preview;
+    if (currentThemeView === "all") {
+      renderAllThemesGrid();
+    }
+  });
+}
+
+function extractThemeFromCard(card) {
+  if (!card) return null;
+  const src = card.dataset.src || "";
+  const mediaType = card.dataset.type || "image";
+  if (!src) return null;
+  return {
+    id: card.dataset.id || "",
+    src,
+    mediaType,
+    name: card.dataset.displayName || card.dataset.name || "Theme",
+    preview: card.dataset.preview || extractBgUrl(card.style.backgroundImage || ""),
+    createdAt: Number(card.dataset.createdAt || 0)
+  };
+}
+
+function renderRecentThemes() {
+  if (!recentSection || !recentThemesGrid) return;
+  const recent = getRecentThemes();
+  if (!recent.length || currentThemeView === "all") {
+    recentSection.hidden = true;
+    recentRenderSignature = "";
+    return;
+  }
+  const lookups = buildRecentThemeLookups();
+  const resolved = [];
+  let unresolvedBlobCount = 0;
+  for (const item of recent) {
+    const next = resolveRecentThemeItem(item, lookups);
+    if (!next) continue;
+    if (next.unresolvedBlob) {
+      unresolvedBlobCount += 1;
+      continue;
+    }
+    resolved.push(next);
+  }
+  if (!resolved.length) {
+    recentSection.hidden = true;
+    if (unresolvedBlobCount === 0) {
+      recentRenderSignature = "";
+    }
+    return;
+  }
+  const signature = resolved
+    .map(theme => `${theme.id || ""}|${theme.kind || ""}|${theme.mediaType || ""}|${theme.src || ""}|${theme.name || ""}`)
+    .join("||");
+  if (signature === recentRenderSignature && recentThemesGrid.childElementCount === resolved.length) {
+    recentSection.hidden = false;
+    return;
+  }
+  recentRenderSignature = signature;
+  recentThemesGrid.innerHTML = "";
+  recentSection.hidden = false;
+  resolved.forEach((theme, index) => {
+    renderThemeCard({
+      id: `recent-${index}-${theme.key}`,
+      kind: "recent",
+      mediaType: theme.mediaType,
+      src: theme.src,
+      preview: theme.preview,
+      name: theme.name,
+      createdAt: theme.createdAt || 0
+    }, recentThemesGrid, { group: "", animate: false });
+  });
+}
+
+function renderAllThemesGrid() {
+  if (!allThemesGrid) return;
+  const usage = getThemeUsageMap();
+  const map = new Map();
+  const collect = (selector) => {
+    document.querySelectorAll(selector).forEach(card => {
+      const theme = extractThemeFromCard(card);
+      if (!theme) return;
+      const key = getThemeIdentity(theme);
+      if (!map.has(key)) map.set(key, theme);
+    });
+  };
+  collect("#defaultThemes .thumb");
+  collect("#localThemesGrid .thumb");
+  collect("#onlineThemesGrid .thumb");
+
+  const list = Array.from(map.values()).filter((theme) => {
+    const type = theme.mediaType || "image";
+    if (type === "video") return allThemesMediaFilter.video;
+    if (type === "image") return allThemesMediaFilter.image;
+    return true;
+  });
+  const mode = allThemesSort?.value || "name";
+  list.sort((a, b) => {
+    const aKey = getThemeIdentity(a);
+    const bKey = getThemeIdentity(b);
+    const au = usage[aKey] || {};
+    const bu = usage[bKey] || {};
+    if (mode === "date") {
+      return Number(b.createdAt || 0) - Number(a.createdAt || 0);
+    }
+    if (mode === "recent") {
+      return Number(bu.lastUsed || 0) - Number(au.lastUsed || 0);
+    }
+    if (mode === "used") {
+      return Number(bu.count || 0) - Number(au.count || 0);
+    }
+    return String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" });
+  });
+
+  const signature = `${mode}|v:${allThemesMediaFilter.video ? 1 : 0}|i:${allThemesMediaFilter.image ? 1 : 0}|` +
+    list.map(t => `${t.id || ""}|${t.mediaType || ""}|${t.src || ""}|${t.name || ""}|${t.createdAt || 0}`).join("||");
+  if (signature === allThemesRenderSignature && allThemesGrid.childElementCount === list.length) {
+    return;
+  }
+  allThemesRenderSignature = signature;
+  allThemesGrid.innerHTML = "";
+
+  list.forEach((theme, index) => {
+    renderThemeCard({
+      ...theme,
+      id: `all-${index}-${theme.src}`,
+      kind: "all"
+    }, allThemesGrid, { group: "", animate: false });
+  });
+}
+
+function setAllThemesFilterPanel(open) {
+  if (!allThemesFilterPanel || !allThemesFilterBtn) return;
+  const show = !!open;
+  allThemesFilterPanel.hidden = !show;
+  allThemesFilterBtn.setAttribute("aria-expanded", show ? "true" : "false");
+}
+
+function setThemeView(mode) {
+  currentThemeView = mode === "all" ? "all" : mode === "uploads" ? "uploads" : "default";
+  const isAll = currentThemeView === "all";
+  const isUploads = currentThemeView === "uploads";
+  if (viewDefaultBtn) viewDefaultBtn.classList.toggle("active", !isAll && !isUploads);
+  if (viewUploadsBtn) viewUploadsBtn.classList.toggle("active", isUploads);
+  if (viewAllBtn) viewAllBtn.classList.toggle("active", isAll);
+  if (allThemesSortWrap) allThemesSortWrap.hidden = !isAll;
+  if (allThemesSection) allThemesSection.hidden = !isAll;
+  if (!isAll) setAllThemesFilterPanel(false);
+  if (builtInSection) builtInSection.hidden = isAll || isUploads;
+  if (uploadsSection) uploadsSection.hidden = isAll;
+  if (isAll) {
+    if (recentSection) recentSection.hidden = true;
+    renderAllThemesGrid();
+  } else if (isUploads) {
+    if (recentSection) recentSection.hidden = true;
+  } else {
+    renderRecentThemes();
+  }
+  applySearchFilter(themeSearch?.value || "");
 }
 
 function makeId() {
@@ -393,7 +780,8 @@ function getOnlineThemes() {
     if (!Array.isArray(list)) return [];
     const seen = new Set();
     return list.filter(item => {
-      const key = `${item.kind || "online"}|${item.mediaType || ""}|${item.url || ""}`;
+      if (!["image", "video"].includes(item.mediaType)) return false;
+      const key = `${item.kind || "online"}|${getThemeUrlKey(item.url || "", item.mediaType || "")}`;
       if (!item.url || seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -422,12 +810,34 @@ function schedulePreloadWork() {
 }
 
 function enqueuePreload(url, type) {
+  enqueuePreloadWithOptions(url, type, {});
+}
+
+function enqueuePreloadWithOptions(url, type, options = {}) {
   if (!url) return;
+  const normalizedUrl = normalizeSrc(url);
+  const force = !!options.force;
+  const highPriority = !!options.highPriority;
+  if (type === "video" && !force && queuedVideoPreloads >= MAX_BACKGROUND_VIDEO_PRELOADS) {
+    return;
+  }
+  if (type === "video" && force && warmedVideoUrls.has(normalizedUrl)) {
+    return;
+  }
   const key = `${type}:${url}`;
   if (preloadSeen.has(key)) return;
   preloadSeen.add(key);
-  preloadQueue.push({ url, type });
-  schedulePreloadWork();
+  if (type === "video") {
+    queuedVideoPreloads += 1;
+  }
+  const job = { url, type };
+  if (highPriority) {
+    preloadQueue.unshift(job);
+    processPreloadQueue();
+  } else {
+    preloadQueue.push(job);
+    schedulePreloadWork();
+  }
 }
 
 function processPreloadQueue() {
@@ -468,6 +878,42 @@ function processPreloadQueue() {
       preloading -= 1;
     }
   }
+}
+
+function warmVideoPreview(url) {
+  if (!url) return;
+  const normalized = normalizeSrc(url);
+  if (warmedVideoUrls.has(normalized) || warmingVideoUrls.has(normalized)) return;
+  if (warmingVideoUrls.size >= MAX_VIDEO_WARM_INFLIGHT) return;
+  warmingVideoUrls.add(normalized);
+  enqueuePreloadWithOptions(normalized, "video", { force: true, highPriority: true });
+
+  const video = document.createElement("video");
+  video.muted = true;
+  video.volume = 0;
+  video.playsInline = true;
+  video.preload = "auto";
+  video.src = normalized;
+
+  const cleanup = (markReady) => {
+    if (markReady) {
+      warmedVideoUrls.add(normalized);
+    }
+    warmingVideoUrls.delete(normalized);
+    video.removeAttribute("src");
+    video.load();
+  };
+
+  const timeout = setTimeout(() => cleanup(false), IS_LOW_END_DEVICE ? 1200 : 1700);
+  video.addEventListener("canplay", () => {
+    clearTimeout(timeout);
+    cleanup(true);
+  }, { once: true });
+  video.addEventListener("error", () => {
+    clearTimeout(timeout);
+    cleanup(false);
+  }, { once: true });
+  video.load();
 }
 
 function extractBgUrl(value) {
@@ -565,6 +1011,12 @@ function attachThemeInteractions(card, theme, onSelect) {
       clearTimeout(hoverResetTimer);
       clearTimeout(hoverPreviewTimer);
       lastHoveredCard = card;
+      if (theme?.mediaType === "video") {
+        warmVideoPreview(theme.src);
+      }
+      if (card.dataset.needsFrame === "1") {
+        hydrateBuiltInPreview(card, theme);
+      }
       hoverPreviewTimer = setTimeout(() => {
         if (lastHoveredCard === card) {
           applyTheme(theme, { previewOnly: true });
@@ -586,6 +1038,12 @@ function attachThemeInteractions(card, theme, onSelect) {
       if (e.pointerType !== "touch") return;
       clearTouchTimer();
       blockNextClick = false;
+      if (theme?.mediaType === "video") {
+        warmVideoPreview(theme.src);
+      }
+      if (card.dataset.needsFrame === "1") {
+        hydrateBuiltInPreview(card, theme);
+      }
       touchTimer = setTimeout(() => {
         blockNextClick = true;
         applyTheme(theme, { previewOnly: true });
@@ -624,6 +1082,11 @@ function renderThemeCard(theme, container, options) {
   card.dataset.group = options?.group || "";
   const displayName = theme.name || "Untitled";
   card.dataset.name = displayName.toLowerCase();
+  card.dataset.displayName = displayName;
+  card.dataset.src = theme.src || "";
+  card.dataset.type = theme.mediaType || "image";
+  card.dataset.preview = theme.preview || "";
+  card.dataset.createdAt = String(theme.createdAt || Date.now());
   if (theme.mediaType === "video") {
     card.classList.add("video");
   }
@@ -722,7 +1185,9 @@ function renderThemeCard(theme, container, options) {
     card.appendChild(del);
   }
 
-  card.classList.add("pop-in");
+  if (options?.animate !== false) {
+    card.classList.add("pop-in");
+  }
   if (options?.group) {
     updateSelectableState(card, options.group);
   }
@@ -905,18 +1370,39 @@ function fitActivePage() {
 }
 
 function initBuiltInThemes() {
+  appendExtraBuiltInThemes();
+  builtInThemes = [];
+  let remoteQueued = 0;
   const builtins = document.querySelectorAll("#defaultThemes .thumb");
-  builtins.forEach(card => {
+  builtins.forEach((card, index) => {
     const src = card.dataset.src;
     const mediaType = card.dataset.type || (src && src.endsWith(".mp4") ? "video" : "image");
     const name = card.dataset.name || "Built-in";
+    const createdAt = Number(card.dataset.createdAt || (index + 1));
     card.dataset.name = name.toLowerCase();
-    const theme = { src, mediaType, name };
+    card.dataset.displayName = name;
+    card.dataset.createdAt = String(createdAt);
     const previewUrl = extractBgUrl(card.style.backgroundImage);
+    card.dataset.preview = previewUrl || "";
+    card.dataset.src = src || "";
+    card.dataset.type = mediaType;
+    const theme = { src, mediaType, name, preview: previewUrl, createdAt };
+    builtInThemes.push(theme);
     if (previewUrl) enqueuePreload(previewUrl, "image");
-    if (mediaType === "video" && src) enqueuePreload(src, "video");
+    if (mediaType === "video" && src) {
+      const isRemote = /^https?:\/\//i.test(src);
+      if (!isRemote || remoteQueued < BUILTIN_REMOTE_VIDEO_PRELOAD_LIMIT) {
+        enqueuePreload(src, "video");
+        if (isRemote) remoteQueued += 1;
+      }
+    }
     attachThemeInteractions(card, theme, () => applyTheme(theme));
+    if (!previewUrl) hydrateBuiltInPreview(card, theme);
   });
+  renderRecentThemes();
+  if (currentThemeView === "all") {
+    renderAllThemesGrid();
+  }
 }
 
 function initSearch() {
@@ -1006,6 +1492,7 @@ function mapCloudTheme(item) {
     name: item.name || "Untitled",
     src: item.url,
     preview: item.preview_url || null,
+    createdAt: item.created_at ? Date.parse(item.created_at) : 0,
     cloudId: item.id,
     storagePath: item.storage_path || "",
     source: "cloud"
@@ -1014,7 +1501,7 @@ function mapCloudTheme(item) {
 
 function getCloudThemesByKind(kind) {
   return cloudThemesCache
-    .filter(item => item.kind === kind)
+    .filter(item => item.kind === kind && ["image", "video"].includes(item.media_type))
     .map(mapCloudTheme);
 }
 
@@ -1070,7 +1557,23 @@ async function renameCloudTheme(theme, name) {
 }
 
 async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
-  const mediaType = file.type.startsWith("video") ? "video" : "image";
+  const mediaType = getMediaTypeFromFile(file);
+  if (mediaType === "pkg") {
+    showToast({
+      message: ".pkg themes are not browser-compatible yet.",
+      type: "error",
+      durationMs: 2200
+    });
+    return;
+  }
+  if (!mediaType) {
+    showToast({
+      message: "Unsupported file format.",
+      type: "error",
+      durationMs: 2000
+    });
+    return;
+  }
   const id = makeId();
   const name = deriveNameFromFile(file);
   const sig = themeKeyFromFile(file);
@@ -1095,53 +1598,68 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
 
   if (isLoggedIn() && supabaseClient) {
     const upload = await uploadThemeFile(file, id);
-    if (upload) {
-      const preview = mediaType === "image"
-        ? upload.publicUrl
-        : await captureVideoFrame(upload.publicUrl);
-      const result = await saveCloudThemeRecord({
+    if (!upload) {
+      showToast({
+        message: "Cloud upload failed. Theme was not added.",
+        type: "error",
+        durationMs: 2200
+      });
+      return;
+    }
+    const preview = mediaType === "image"
+      ? upload.publicUrl
+      : await captureVideoFrame(upload.publicUrl);
+    const result = await saveCloudThemeRecord({
+      kind: "local",
+      mediaType,
+      name,
+      url: upload.publicUrl,
+      storagePath: upload.path
+    });
+    if (result?.data) {
+      const record = result.data;
+      const theme = {
+        id: record.id,
         kind: "local",
         mediaType,
-        name,
-        url: upload.publicUrl,
-        storagePath: upload.path
+        name: record.name || name,
+        src: upload.publicUrl,
+        preview,
+        createdAt: record.created_at ? Date.parse(record.created_at) : Date.now(),
+        cloudId: record.id,
+        storagePath: upload.path,
+        source: "cloud"
+      };
+      await loadCloudThemes();
+      renderThemeCard(theme, localThemesGrid, {
+        deletable: true,
+        editable: true,
+        group: "local",
+        onRename: async (t, nextName) => {
+          await renameCloudTheme(t, nextName);
+          loadAndRenderLocalThemes();
+        },
+        onDelete: async (t) => {
+          await deleteCloudTheme(t);
+          loadAndRenderLocalThemes();
+        }
       });
-      if (result?.data) {
-        const record = result.data;
-        const theme = {
-          id: record.id,
-          kind: "local",
-          mediaType,
-          name: record.name || name,
-          src: upload.publicUrl,
-          preview,
-          cloudId: record.id,
-          storagePath: upload.path,
-          source: "cloud"
-        };
-        renderThemeCard(theme, localThemesGrid, {
-          deletable: true,
-          editable: true,
-          group: "local",
-          onRename: async (t, nextName) => {
-            await renameCloudTheme(t, nextName);
-            loadAndRenderLocalThemes();
-          },
-          onDelete: async (t) => {
-            await deleteCloudTheme(t);
-            loadAndRenderLocalThemes();
-          }
-        });
-        if (autoApply) applyTheme(theme);
-        return;
-      } else if (result?.error) {
-        showToast({
-          message: result.error.message || "Could not save theme to cloud.",
-          type: "error",
-          durationMs: 2000
-        });
+      if (currentThemeView === "all") {
+        renderAllThemesGrid();
+        applySearchFilter(themeSearch?.value || "");
       }
+      if (autoApply) applyTheme(theme);
+      return;
     }
+    if (upload.path) {
+      await supabaseClient.storage.from("themes").remove([upload.path]);
+    }
+    showToast({
+      message: result?.error?.message || "Cloud save failed. Theme was not added.",
+      type: "error",
+      durationMs: 2200
+    });
+    return;
   }
 
   await saveLocalTheme({
@@ -1163,7 +1681,7 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
     preview = await captureVideoFrame(src);
   }
 
-  const theme = { id, kind: "local", mediaType, src, preview, name };
+  const theme = { id, kind: "local", mediaType, src, preview, name, createdAt: Date.now() };
   renderThemeCard(theme, localThemesGrid, {
     deletable: true,
     editable: true,
@@ -1180,6 +1698,10 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
       loadAndRenderLocalThemes();
     }
   });
+  if (currentThemeView === "all") {
+    renderAllThemesGrid();
+    applySearchFilter(themeSearch?.value || "");
+  }
 
   if (!isLoggedIn()) {
     promptLoginToast();
@@ -1194,6 +1716,12 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
 async function handleLocalUpload(event) {
   const files = Array.from(event.target.files || []);
   if (!files.length) return;
+  await processLocalFiles(files);
+  event.target.value = "";
+}
+
+async function processLocalFiles(files) {
+  if (!files.length) return;
   const existing = await loadLocalThemes();
   const existingSigSet = new Set(
     existing.map(item => item.sig || `${item.name}|${item.blob?.size || 0}|${item.blob?.type || ""}`)
@@ -1203,7 +1731,16 @@ async function handleLocalUpload(event) {
     : new Set();
 
   for (const file of files) {
-    if (!file.type.startsWith("video") && !file.type.startsWith("image")) {
+    const mediaType = getMediaTypeFromFile(file);
+    if (mediaType === "pkg") {
+      showToast({
+        message: `${file.name} is .pkg and cannot run in browser.`,
+        type: "error",
+        durationMs: 2200
+      });
+      continue;
+    }
+    if (!mediaType) {
       showToast({
         message: "Skipped a non-image/video file.",
         type: "error",
@@ -1232,7 +1769,6 @@ async function handleLocalUpload(event) {
       placeholder?.done();
     }
   }
-  event.target.value = "";
 }
 
 function toggleUploadMenu(force) {
@@ -1261,9 +1797,56 @@ function toggleUploadMenu(force) {
   }
 }
 
+function getDroppedUrl(dataTransfer) {
+  if (!dataTransfer) return "";
+  const uri = (dataTransfer.getData("text/uri-list") || "").split("\n").find(Boolean);
+  if (uri) return uri.trim();
+  const text = (dataTransfer.getData("text/plain") || "").trim();
+  if (!text) return "";
+  const firstToken = text.split(/\s+/)[0];
+  try {
+    const parsed = new URL(firstToken);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return firstToken;
+    }
+  } catch {
+    return "";
+  }
+  return "";
+}
+
+function setupDropZone(panel, handlers) {
+  if (!panel) return;
+  let depth = 0;
+  const activate = () => panel.classList.add("drop-active");
+  const deactivate = () => panel.classList.remove("drop-active");
+
+  panel.addEventListener("dragenter", (e) => {
+    e.preventDefault();
+    depth += 1;
+    activate();
+  });
+  panel.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    activate();
+  });
+  panel.addEventListener("dragleave", (e) => {
+    e.preventDefault();
+    depth = Math.max(0, depth - 1);
+    if (depth === 0) deactivate();
+  });
+  panel.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    depth = 0;
+    deactivate();
+    await handlers(e);
+  });
+}
+
 async function handleAddOnlineTheme() {
   const rawUrl = (onlineUrlInput.value || "").trim();
-  const url = normalizeUrl(rawUrl);
+  let url = normalizeUrl(rawUrl);
   if (!url) return;
 
   const mediaType = getMediaTypeFromUrl(url);
@@ -1275,13 +1858,14 @@ async function handleAddOnlineTheme() {
     });
     return;
   }
+  const themeKey = getThemeUrlKey(url, mediaType);
 
-  const existingOnline = [
-    ...getOnlineThemes().map(item => normalizeUrl(item.url || "")),
-    ...getCloudThemesByKind("online").map(item => normalizeUrl(item.src || "")),
+  const existingOnline = new Set([
+    ...getOnlineThemes().map(item => getThemeUrlKey(item.url || "", item.mediaType)),
+    ...getCloudThemesByKind("online").map(item => getThemeUrlKey(item.src || "", item.mediaType)),
     ...Array.from(pendingOnlineUrls)
-  ];
-  if (existingOnline.includes(url)) {
+  ]);
+  if (existingOnline.has(themeKey)) {
     showToast({
       message: `${deriveNameFromUrl(url)} already exists.`,
       type: "error",
@@ -1289,7 +1873,7 @@ async function handleAddOnlineTheme() {
     });
     return;
   }
-  pendingOnlineUrls.add(url);
+  pendingOnlineUrls.add(themeKey);
 
   const theme = {
     id: makeId(),
@@ -1312,35 +1896,26 @@ async function handleAddOnlineTheme() {
       });
       if (result?.data) {
         const record = result.data;
+        await loadCloudThemes();
         await renderOnlineTheme({
           id: record.id,
           kind: "online",
           mediaType,
           url: record.url,
           name: record.name || theme.name,
+          createdAt: record.created_at ? Date.parse(record.created_at) : Date.now(),
           storagePath: record.storage_path || "",
           source: "cloud"
         });
         placeholder?.done();
       } else {
-        if (result?.error) {
-          showToast({
-            message: result.error.message || "Could not add this URL.",
-            type: "error",
-            durationMs: 2000
-          });
-        }
-        const list = getOnlineThemes();
-        const exists = list.some(item => item.url === theme.url && item.mediaType === theme.mediaType);
-        if (!exists) {
-          list.push(theme);
-          setOnlineThemes(list);
-        }
-    await renderOnlineTheme(theme);
-    promptLoginToast();
-    markGuestThemesPending();
-    placeholder?.done();
-  }
+        showToast({
+          message: result?.error?.message || "Cloud save failed. URL was not added.",
+          type: "error",
+          durationMs: 2200
+        });
+      }
+      placeholder?.done();
     } else {
       const list = getOnlineThemes();
       const exists = list.some(item => item.url === theme.url && item.mediaType === theme.mediaType);
@@ -1353,7 +1928,7 @@ async function handleAddOnlineTheme() {
       placeholder?.done();
     }
   } finally {
-    pendingOnlineUrls.delete(url);
+    pendingOnlineUrls.delete(themeKey);
     onlineUrlInput.value = "";
   }
 }
@@ -1385,6 +1960,7 @@ async function renderOnlineTheme(theme) {
     name,
     src: theme.url,
     preview,
+    createdAt: theme.createdAt || 0,
     cloudId: theme.cloudId || theme.id,
     storagePath: theme.storagePath || "",
     source: theme.source || ""
@@ -1414,6 +1990,10 @@ async function renderOnlineTheme(theme) {
       loadAndRenderOnlineThemes();
     }
   });
+  if (currentThemeView === "all") {
+    renderAllThemesGrid();
+    applySearchFilter(themeSearch?.value || "");
+  }
 }
 
 async function loadAndRenderLocalThemes() {
@@ -1425,52 +2005,53 @@ async function loadAndRenderLocalThemes() {
   }
   localObjectUrls.clear();
 
-  const stored = await loadLocalThemes();
-  if (token !== localRenderToken) return;
-  for (const item of stored) {
-    if (!item.sig && item.blob) {
-      item.sig = `${item.name}|${item.blob.size}|${item.blob.type}`;
-      await saveLocalTheme(item);
-    }
-    const src = URL.createObjectURL(item.blob);
-    localObjectUrls.set(item.id, src);
-
-    let preview = null;
-    if (item.mediaType === "image") {
-      preview = await createImagePreviewFromBlob(item.blob);
-    } else {
-      preview = await captureVideoFrame(src);
-    }
+  if (!isLoggedIn()) {
+    const stored = await loadLocalThemes();
     if (token !== localRenderToken) return;
-    const name = item.name || deriveNameFromFile(item.blob);
-
-    const theme = {
-      id: item.id,
-      kind: "local",
-      mediaType: item.mediaType,
-      src,
-      preview,
-      name
-    };
-
-    renderThemeCard(theme, localThemesGrid, {
-      deletable: true,
-      editable: true,
-      group: "local",
-      onRename: async (t, nextName) => {
-        await updateLocalThemeName(t.id, nextName);
-      },
-      onDelete: async (t) => {
-        await deleteLocalTheme(t.id);
-        const url = localObjectUrls.get(t.id);
-        if (url) URL.revokeObjectURL(url);
-        localObjectUrls.delete(t.id);
-        loadAndRenderLocalThemes();
+    for (const item of stored) {
+      if (!item.sig && item.blob) {
+        item.sig = `${item.name}|${item.blob.size}|${item.blob.type}`;
+        await saveLocalTheme(item);
       }
-    });
-  }
+      const src = URL.createObjectURL(item.blob);
+      localObjectUrls.set(item.id, src);
 
-  if (isLoggedIn()) {
+      let preview = null;
+      if (item.mediaType === "image") {
+        preview = await createImagePreviewFromBlob(item.blob);
+      } else {
+        preview = await captureVideoFrame(src);
+      }
+      if (token !== localRenderToken) return;
+      const name = item.name || deriveNameFromFile(item.blob);
+
+      const theme = {
+        id: item.id,
+        kind: "local",
+        mediaType: item.mediaType,
+        src,
+        preview,
+        name,
+        createdAt: item.createdAt || 0
+      };
+
+      renderThemeCard(theme, localThemesGrid, {
+        deletable: true,
+        editable: true,
+        group: "local",
+        onRename: async (t, nextName) => {
+          await updateLocalThemeName(t.id, nextName);
+        },
+        onDelete: async (t) => {
+          await deleteLocalTheme(t.id);
+          const url = localObjectUrls.get(t.id);
+          if (url) URL.revokeObjectURL(url);
+          localObjectUrls.delete(t.id);
+          loadAndRenderLocalThemes();
+        }
+      });
+    }
+  } else {
     const cloudLocal = getCloudThemesByKind("local");
     for (const theme of cloudLocal) {
       let preview = theme.preview;
@@ -1495,6 +2076,10 @@ async function loadAndRenderLocalThemes() {
   }
   }
 
+  renderRecentThemes();
+  if (currentThemeView === "all") {
+    renderAllThemesGrid();
+  }
   applySearchFilter(themeSearch?.value || "");
 }
 
@@ -1511,6 +2096,7 @@ async function loadAndRenderOnlineThemes() {
         kind: "online",
         mediaType: theme.mediaType,
         url: theme.src,
+        createdAt: theme.createdAt || 0,
         preview: theme.preview,
         storagePath: theme.storagePath,
         source: "cloud",
@@ -1519,14 +2105,21 @@ async function loadAndRenderOnlineThemes() {
       if (token !== onlineRenderToken) return;
     }
   } else {
-    const list = getOnlineThemes();
-    if (token !== onlineRenderToken) return;
-    for (const theme of list) {
+    const renderedKeys = new Set();
+    const localList = getOnlineThemes();
+    for (const theme of localList) {
+      const key = getThemeUrlKey(theme.url || theme.src || "", theme.mediaType);
+      if (key && renderedKeys.has(key)) continue;
+      if (key) renderedKeys.add(key);
       await renderOnlineTheme(theme);
       if (token !== onlineRenderToken) return;
     }
   }
 
+  renderRecentThemes();
+  if (currentThemeView === "all") {
+    renderAllThemesGrid();
+  }
   applySearchFilter(themeSearch?.value || "");
 }
 
@@ -1551,8 +2144,15 @@ function initThemeLibrary() {
   }
   document.addEventListener("click", (e) => {
     if (!uploadMenu || !uploadMenuBtn) return;
-    if (uploadMenu.contains(e.target) || uploadMenuBtn.contains(e.target)) return;
-    toggleUploadMenu(false);
+    if (!(uploadMenu.contains(e.target) || uploadMenuBtn.contains(e.target))) {
+      toggleUploadMenu(false);
+    }
+    if (allThemesFilterPanel && allThemesFilterBtn) {
+      const insideFilter = allThemesFilterPanel.contains(e.target) || allThemesFilterBtn.contains(e.target);
+      if (!insideFilter) {
+        setAllThemesFilterPanel(false);
+      }
+    }
   });
   if (addOnlineThemeBtn) {
     addOnlineThemeBtn.addEventListener("click", handleAddOnlineTheme);
@@ -1581,9 +2181,96 @@ function initThemeLibrary() {
       }
     });
   }
+  if (viewDefaultBtn) {
+    viewDefaultBtn.addEventListener("click", () => setThemeView("default"));
+  }
+  if (viewUploadsBtn) {
+    viewUploadsBtn.addEventListener("click", () => setThemeView("uploads"));
+  }
+  if (viewAllBtn) {
+    viewAllBtn.addEventListener("click", () => setThemeView("all"));
+  }
+  if (allThemesSort) {
+    allThemesSort.addEventListener("change", () => {
+      if (currentThemeView === "all") {
+        renderAllThemesGrid();
+        applySearchFilter(themeSearch?.value || "");
+      }
+    });
+  }
+  if (filterVideo) {
+    filterVideo.checked = allThemesMediaFilter.video;
+    filterVideo.addEventListener("change", () => {
+      allThemesMediaFilter.video = !!filterVideo.checked;
+      if (currentThemeView === "all") {
+        renderAllThemesGrid();
+        applySearchFilter(themeSearch?.value || "");
+      }
+    });
+  }
+  if (filterImage) {
+    filterImage.checked = allThemesMediaFilter.image;
+    filterImage.addEventListener("change", () => {
+      allThemesMediaFilter.image = !!filterImage.checked;
+      if (currentThemeView === "all") {
+        renderAllThemesGrid();
+        applySearchFilter(themeSearch?.value || "");
+      }
+    });
+  }
+  if (allThemesFilterBtn) {
+    allThemesFilterBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (currentThemeView !== "all") return;
+      const next = !(allThemesFilterPanel && !allThemesFilterPanel.hidden);
+      setAllThemesFilterPanel(next);
+    });
+  }
+  setupDropZone(localPanelBlock, async (e) => {
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (!files.length) return;
+    await processLocalFiles(files);
+  });
+  setupDropZone(onlinePanelBlock, async (e) => {
+    const droppedUrl = getDroppedUrl(e.dataTransfer);
+    if (droppedUrl && onlineUrlInput) {
+      onlineUrlInput.value = droppedUrl;
+      await handleAddOnlineTheme();
+      return;
+    }
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (files.length) {
+      await processLocalFiles(files);
+      showToast({
+        message: "Dropped files were added to Your Themes.",
+        durationMs: 1800
+      });
+    }
+  });
+  setupDropZone(allThemesSection, async (e) => {
+    const droppedUrl = getDroppedUrl(e.dataTransfer);
+    if (droppedUrl && onlineUrlInput) {
+      onlineUrlInput.value = droppedUrl;
+      await handleAddOnlineTheme();
+      return;
+    }
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (files.length) {
+      await processLocalFiles(files);
+      if (currentThemeView === "all") {
+        renderAllThemesGrid();
+        applySearchFilter(themeSearch?.value || "");
+      }
+      showToast({
+        message: "Dropped files were added to Your Themes.",
+        durationMs: 1800
+      });
+    }
+  });
 
   loadAndRenderLocalThemes();
   loadAndRenderOnlineThemes();
+  setThemeView("default");
 }
 
 initThemeLibrary();
@@ -2080,6 +2767,10 @@ async function initAuth() {
       localStorage.removeItem("ambientLastPage");
       localStorage.removeItem("ambientTimerHintPending");
       localStorage.removeItem("ambientGuestImportHandled");
+      localStorage.removeItem(THEME_RECENT_KEY);
+      localStorage.removeItem(THEME_USAGE_KEY);
+      localStorage.removeItem(GUEST_SAVE_TOAST_SEEN_KEY);
+      renderRecentThemes();
     }
   });
 
@@ -2377,6 +3068,9 @@ async function loadCloudThemes() {
 }
 
 function promptLoginToast() {
+  if (isLoggedIn()) return;
+  if (localStorage.getItem(GUEST_SAVE_TOAST_SEEN_KEY) === "true") return;
+  localStorage.setItem(GUEST_SAVE_TOAST_SEEN_KEY, "true");
   showToast({
     message: "To keep themes across devices, please log in or sign up.",
     closable: true,
@@ -2425,6 +3119,10 @@ function startTimerFromSeconds(totalSeconds) {
   paused = false;
   pauseStartedMs = null;
   timerEndMs = Date.now() + totalSeconds * 1000;
+  setTimerDisplayPausedVisual(false);
+  if (confirmedTheme?.mediaType) {
+    setMediaMode(confirmedTheme.mediaType);
+  }
 
   // Show timer page
   transitionTo("timerBox");
@@ -2451,6 +3149,11 @@ function startTimerFromSeconds(totalSeconds) {
 
     updateDisplay();
   }, 250);
+}
+
+function setTimerDisplayPausedVisual(isPaused) {
+  if (!timerDisplay) return;
+  timerDisplay.style.opacity = isPaused ? "0.45" : "1";
 }
 
 /* ================================
@@ -2505,7 +3208,7 @@ timerDisplay.addEventListener("click", () => {
       pauseStartedMs = null;
     }
   }
-  timerDisplay.style.opacity = paused ? "0.45" : "1";
+  setTimerDisplayPausedVisual(paused);
 });
 
 document.addEventListener("keydown", (e) => {
@@ -2526,7 +3229,7 @@ document.addEventListener("keydown", (e) => {
         pauseStartedMs = null;
       }
     }
-    timerDisplay.style.opacity = paused ? "0.45" : "1";
+    setTimerDisplayPausedVisual(paused);
   }
 });
 
@@ -2659,11 +3362,20 @@ function transitionToVideo(src) {
   const targetSrc = normalizeSrc(src);
   if (currentVideoSrc === targetSrc) {
     const active = getActiveVideo();
-    if (active && !active.paused) {
-      return;
-    }
     if (active) {
-      active.play().catch(() => {});
+      setFadeMsForVideo(active, BG_SWITCH_FADE_MS);
+      setActiveLayer(active);
+      bgImages.forEach(image => image.classList.remove("active"));
+      if (!active.currentSrc && !active.src) {
+        active.src = targetSrc;
+        active.preload = "auto";
+        active.load();
+      }
+      active.play().catch(() => {
+        active.load();
+        active.play().catch(() => {});
+      });
+      startVideoWatchdog();
       return;
     }
   }
