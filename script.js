@@ -193,6 +193,8 @@ const warmingVideoUrls = new Set();
 const warmedVideoUrls = new Set();
 let recentRenderSignature = "";
 let allThemesRenderSignature = "";
+let themesNameColumnAvailable = true;
+let themesNameColumnWarned = false;
 const EXTRA_BUILTIN_THEMES = [
   { name: "Waterfall of Godafoss", src: "https://motionbgs.com/dl/hd/6", preview: "https://motionbgs.com/media/6/waterfall-of-godafoss-in-iceland.1920x1080.jpg", captureFirstFrame: true },
   { name: "Green Grass", src: "https://motionbgs.com/dl/hd/34", preview: "https://motionbgs.com/media/34/green-grass.1920x1080.jpg", captureFirstFrame: true },
@@ -1527,8 +1529,25 @@ async function saveCloudThemeRecord({ kind, mediaType, url, storagePath = "", na
     .insert(payload)
     .select("*")
     .single();
-  if (error) return { data: null, error };
-  return { data, error: null };
+  if (!error) return { data, error: null };
+  if (!isMissingThemesNameColumnError(error)) return { data: null, error };
+
+  themesNameColumnAvailable = false;
+  notifyThemesNameColumnMissing();
+  const fallbackPayload = {
+    user_id: currentUser.id,
+    kind,
+    media_type: mediaType,
+    url,
+    storage_path: storagePath
+  };
+  const fallback = await supabaseClient
+    .from("themes")
+    .insert(fallbackPayload)
+    .select("*")
+    .single();
+  if (fallback.error) return { data: null, error: fallback.error };
+  return { data: fallback.data, error: null };
 }
 
 function getErrorMessage(err, fallback = "Unknown error") {
@@ -1542,6 +1561,25 @@ function getErrorMessage(err, fallback = "Unknown error") {
     (typeof err === "object" ? JSON.stringify(err) : String(err)) ||
     fallback
   );
+}
+
+function isMissingThemesNameColumnError(err) {
+  const msg = getErrorMessage(err, "").toLowerCase();
+  return (
+    msg.includes("could not find the 'name' column of 'themes'") ||
+    (msg.includes("column") && msg.includes("name") && msg.includes("themes")) ||
+    (msg.includes("schema cache") && msg.includes("name"))
+  );
+}
+
+function notifyThemesNameColumnMissing() {
+  if (themesNameColumnWarned) return;
+  themesNameColumnWarned = true;
+  showToast({
+    message: "Database column 'themes.name' is missing. Upload works, but cloud rename is disabled until you add it.",
+    type: "error",
+    durationMs: 3200
+  });
 }
 
 async function uploadThemeFile(file, id) {
@@ -1586,10 +1624,18 @@ async function deleteCloudTheme(theme) {
 
 async function renameCloudTheme(theme, name) {
   if (!supabaseClient || !currentUser || !theme.cloudId) return;
-  await supabaseClient.from("themes")
+  if (!themesNameColumnAvailable) {
+    notifyThemesNameColumnMissing();
+    return;
+  }
+  const { error } = await supabaseClient.from("themes")
     .update({ name })
     .eq("id", theme.cloudId)
     .eq("user_id", currentUser.id);
+  if (error && isMissingThemesNameColumnError(error)) {
+    themesNameColumnAvailable = false;
+    notifyThemesNameColumnMissing();
+  }
 }
 
 async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
