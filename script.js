@@ -1722,7 +1722,7 @@ async function handleLocalUpload(event) {
 
 async function processLocalFiles(files) {
   if (!files.length) return;
-  const existing = await loadLocalThemes();
+  const existing = isLoggedIn() ? [] : await loadLocalThemes();
   const existingSigSet = new Set(
     existing.map(item => item.sig || `${item.name}|${item.blob?.size || 0}|${item.blob?.type || ""}`)
   );
@@ -1861,8 +1861,9 @@ async function handleAddOnlineTheme() {
   const themeKey = getThemeUrlKey(url, mediaType);
 
   const existingOnline = new Set([
-    ...getOnlineThemes().map(item => getThemeUrlKey(item.url || "", item.mediaType)),
-    ...getCloudThemesByKind("online").map(item => getThemeUrlKey(item.src || "", item.mediaType)),
+    ...(isLoggedIn()
+      ? getCloudThemesByKind("online").map(item => getThemeUrlKey(item.src || "", item.mediaType))
+      : getOnlineThemes().map(item => getThemeUrlKey(item.url || "", item.mediaType))),
     ...Array.from(pendingOnlineUrls)
   ]);
   if (existingOnline.has(themeKey)) {
@@ -2284,11 +2285,13 @@ setConfirmedThemeFromCurrent();
    CONFIRM MODAL
    ================================ */
 
-function openConfirm({ title, message }) {
+function openConfirm({ title, message, cancelLabel, okLabel }) {
   return new Promise((resolve) => {
     if (!confirmOverlay) return resolve(true);
     confirmTitle.textContent = title || "Confirm";
     confirmMessage.textContent = message || "";
+    if (confirmCancel) confirmCancel.textContent = cancelLabel || "Cancel";
+    if (confirmOk) confirmOk.textContent = okLabel || "Delete";
     confirmOverlay.classList.add("active");
     confirmOverlay.setAttribute("aria-hidden", "false");
 
@@ -2470,7 +2473,9 @@ async function maybePromptGuestImport() {
   guestImportPrompting = true;
   const ok = await openConfirm({
     title: "Add previous themes?",
-    message: "We found themes added while you were a guest. Add them to your account?"
+    message: "We found themes added while you were a guest. Add them to your account?",
+    cancelLabel: "No",
+    okLabel: "Yes"
   });
   localStorage.setItem("ambientGuestImportHandled", "true");
 
