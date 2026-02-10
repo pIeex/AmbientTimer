@@ -1450,15 +1450,25 @@ function captureVideoFrame(src) {
     video.muted = true;
     video.playsInline = true;
     video.src = src;
+    let settled = false;
 
-    const cleanup = () => {
+    const cleanup = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
       video.removeAttribute("src");
       video.load();
+      resolve(result);
     };
+    const timeout = setTimeout(() => cleanup(null), 5000);
 
     video.addEventListener("loadedmetadata", () => {
       const seekTime = Math.min(0.1, video.duration || 0);
-      video.currentTime = seekTime;
+      try {
+        video.currentTime = seekTime;
+      } catch {
+        cleanup(null);
+      }
     });
 
     video.addEventListener("seeked", () => {
@@ -1469,17 +1479,14 @@ function captureVideoFrame(src) {
       try {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const data = canvas.toDataURL("image/jpeg", 0.85);
-        cleanup();
-        resolve(data);
+        cleanup(data);
       } catch {
-        cleanup();
-        resolve(null);
+        cleanup(null);
       }
     });
 
     video.addEventListener("error", () => {
-      cleanup();
-      resolve(null);
+      cleanup(null);
     });
   });
 }
@@ -1524,25 +1531,46 @@ async function saveCloudThemeRecord({ kind, mediaType, url, storagePath = "", na
   return { data, error: null };
 }
 
+function getErrorMessage(err, fallback = "Unknown error") {
+  if (!err) return fallback;
+  if (typeof err === "string") return err;
+  return (
+    err.message ||
+    err.error_description ||
+    err.msg ||
+    err.hint ||
+    (typeof err === "object" ? JSON.stringify(err) : String(err)) ||
+    fallback
+  );
+}
+
 async function uploadThemeFile(file, id) {
-  if (!supabaseClient || !currentUser) {
+  try {
+    if (!supabaseClient || !currentUser) {
+      return {
+        publicUrl: "",
+        path: "",
+        error: { message: "You must be logged in before cloud upload." }
+      };
+    }
+    const ext = file.name.split(".").pop() || "mp4";
+    const path = `${currentUser.id}/${id}-${Date.now()}.${ext}`;
+    const { error } = await supabaseClient.storage.from("themes").upload(path, file, {
+      upsert: true,
+      contentType: file.type || "application/octet-stream"
+    });
+    if (error) {
+      return { publicUrl: "", path, error };
+    }
+    const { data } = supabaseClient.storage.from("themes").getPublicUrl(path);
+    return { publicUrl: data?.publicUrl || "", path, error: null };
+  } catch (err) {
     return {
       publicUrl: "",
       path: "",
-      error: { message: "You must be logged in before cloud upload." }
+      error: { message: getErrorMessage(err, "Cloud upload failed.") }
     };
   }
-  const ext = file.name.split(".").pop() || "mp4";
-  const path = `${currentUser.id}/${id}-${Date.now()}.${ext}`;
-  const { error } = await supabaseClient.storage.from("themes").upload(path, file, {
-    upsert: true,
-    contentType: file.type || "application/octet-stream"
-  });
-  if (error) {
-    return { publicUrl: "", path, error };
-  }
-  const { data } = supabaseClient.storage.from("themes").getPublicUrl(path);
-  return { publicUrl: data.publicUrl, path, error: null };
 }
 
 async function deleteCloudTheme(theme) {
@@ -1611,7 +1639,7 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
         console.error("Theme storage upload failed:", upload.error);
       }
       showToast({
-        message: upload?.error?.message || "Cloud upload failed. Theme was not added.",
+        message: getErrorMessage(upload?.error, "Cloud upload failed. Theme was not added."),
         type: "error",
         durationMs: 2800
       });
@@ -1666,7 +1694,7 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
       await supabaseClient.storage.from("themes").remove([upload.path]);
     }
     showToast({
-      message: result?.error?.message || "Cloud save failed. Theme was not added.",
+      message: getErrorMessage(result?.error, "Cloud save failed. Theme was not added."),
       type: "error",
       durationMs: 2200
     });
@@ -1897,6 +1925,7 @@ async function handleAddOnlineTheme() {
   };
 
   const placeholder = createUploadPlaceholder(onlineThemesGrid, theme.name);
+  let uploadCompleted = false;
 
   try {
     if (isLoggedIn() && supabaseClient) {
@@ -1919,15 +1948,14 @@ async function handleAddOnlineTheme() {
           storagePath: record.storage_path || "",
           source: "cloud"
         });
-        placeholder?.done();
+        uploadCompleted = true;
       } else {
         showToast({
-          message: result?.error?.message || "Cloud save failed. URL was not added.",
+          message: getErrorMessage(result?.error, "Cloud save failed. URL was not added."),
           type: "error",
           durationMs: 2200
         });
       }
-      placeholder?.done();
     } else {
       const list = getOnlineThemes();
       const exists = list.some(item => item.url === theme.url && item.mediaType === theme.mediaType);
@@ -1937,9 +1965,20 @@ async function handleAddOnlineTheme() {
       }
       await renderOnlineTheme(theme);
       promptLoginToast();
-      placeholder?.done();
+      uploadCompleted = true;
     }
+  } catch (err) {
+    showToast({
+      message: getErrorMessage(err, "Could not add URL theme."),
+      type: "error",
+      durationMs: 2200
+    });
   } finally {
+    if (uploadCompleted) {
+      placeholder?.done();
+    } else {
+      placeholder?.fail();
+    }
     pendingOnlineUrls.delete(themeKey);
     onlineUrlInput.value = "";
   }
