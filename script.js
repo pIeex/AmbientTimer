@@ -1525,16 +1525,24 @@ async function saveCloudThemeRecord({ kind, mediaType, url, storagePath = "", na
 }
 
 async function uploadThemeFile(file, id) {
-  if (!supabaseClient || !currentUser) return null;
+  if (!supabaseClient || !currentUser) {
+    return {
+      publicUrl: "",
+      path: "",
+      error: { message: "You must be logged in before cloud upload." }
+    };
+  }
   const ext = file.name.split(".").pop() || "mp4";
   const path = `${currentUser.id}/${id}-${Date.now()}.${ext}`;
   const { error } = await supabaseClient.storage.from("themes").upload(path, file, {
     upsert: true,
-    contentType: file.type
+    contentType: file.type || "application/octet-stream"
   });
-  if (error) return null;
+  if (error) {
+    return { publicUrl: "", path, error };
+  }
   const { data } = supabaseClient.storage.from("themes").getPublicUrl(path);
-  return { publicUrl: data.publicUrl, path };
+  return { publicUrl: data.publicUrl, path, error: null };
 }
 
 async function deleteCloudTheme(theme) {
@@ -1598,11 +1606,14 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
 
   if (isLoggedIn() && supabaseClient) {
     const upload = await uploadThemeFile(file, id);
-    if (!upload) {
+    if (!upload || upload.error || !upload.publicUrl) {
+      if (upload?.error) {
+        console.error("Theme storage upload failed:", upload.error);
+      }
       showToast({
-        message: "Cloud upload failed. Theme was not added.",
+        message: upload?.error?.message || "Cloud upload failed. Theme was not added.",
         type: "error",
-        durationMs: 2200
+        durationMs: 2800
       });
       return;
     }
