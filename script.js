@@ -435,27 +435,61 @@ function setCloudThemeNameCache(map) {
   localStorage.setItem(CLOUD_THEME_NAME_CACHE_KEY, JSON.stringify(map || {}));
 }
 
-function rememberCloudThemeName(id, name) {
+function cloudNameUrlKey(url, mediaType) {
+  const normalized = normalizeUrl(url || "");
+  if (!normalized) return "";
+  return `url:${mediaType || ""}|${normalized}`;
+}
+
+function rememberCloudThemeName(id, name, url = "", mediaType = "") {
   if (!id) return;
   const trimmed = String(name || "").trim();
   if (!trimmed) return;
   const map = getCloudThemeNameCache();
-  map[id] = trimmed;
+  map[`id:${id}`] = trimmed;
+  const urlKey = cloudNameUrlKey(url, mediaType);
+  if (urlKey) {
+    map[urlKey] = trimmed;
+  }
   setCloudThemeNameCache(map);
 }
 
-function forgetCloudThemeName(id) {
-  if (!id) return;
+function forgetCloudThemeName(id, url = "", mediaType = "") {
   const map = getCloudThemeNameCache();
-  if (!(id in map)) return;
-  delete map[id];
+  let changed = false;
+  const idKey = id ? `id:${id}` : "";
+  if (idKey && idKey in map) {
+    delete map[idKey];
+    changed = true;
+  }
+  const urlKey = cloudNameUrlKey(url, mediaType);
+  if (urlKey && urlKey in map) {
+    delete map[urlKey];
+    changed = true;
+  }
+  if (!changed) return;
   setCloudThemeNameCache(map);
 }
 
-function getRememberedCloudThemeName(id) {
-  if (!id) return "";
+function getRememberedCloudThemeName(id, url = "", mediaType = "") {
   const map = getCloudThemeNameCache();
-  return String(map[id] || "").trim();
+  if (id) {
+    const byId = String(map[`id:${id}`] || "").trim();
+    if (byId) return byId;
+  }
+  const urlKey = cloudNameUrlKey(url, mediaType);
+  if (!urlKey) return "";
+  return String(map[urlKey] || "").trim();
+}
+
+function rememberCloudThemeNameByUrl(url, mediaType, name) {
+  const trimmed = String(name || "").trim();
+  if (!trimmed) return;
+  const urlKey = cloudNameUrlKey(url, mediaType);
+  if (!urlKey) return;
+  const map = getCloudThemeNameCache();
+  map[urlKey] = trimmed;
+  setCloudThemeNameCache(map);
 }
 
 function removeThemeFromHistory(match = {}) {
@@ -1244,23 +1278,44 @@ function renderThemeCard(theme, container, options) {
 
       const cleanup = (restore) => {
         if (restore) {
-          meta.replaceChild(nameSpan, input);
+          if (input.parentNode === meta) {
+            meta.replaceChild(nameSpan, input);
+          }
         }
       };
 
-      input.addEventListener("keydown", async (evt) => {
-        if (evt.key === "Enter") {
-          const nextName = (input.value || "").trim();
-          if (!nextName) {
-            cleanup(true);
-            return;
-          }
-          if (options.onRename) {
-            await options.onRename(theme, nextName);
-          }
-          nameSpan.textContent = nextName;
-          card.dataset.name = nextName.toLowerCase();
+      const commitRename = () => {
+        const nextName = (input.value || "").trim();
+        if (!nextName) {
           cleanup(true);
+          return;
+        }
+        nameSpan.textContent = nextName;
+        card.dataset.name = nextName.toLowerCase();
+        theme.name = nextName;
+        cleanup(true);
+        if (theme.source === "cloud") {
+          rememberCloudThemeName(theme.cloudId || theme.id, nextName, theme.src || theme.url, theme.mediaType);
+        } else if (theme.kind === "online") {
+          rememberCloudThemeNameByUrl(theme.src || theme.url, theme.mediaType, nextName);
+        }
+        if (options.onRename) {
+          Promise.resolve(options.onRename(theme, nextName)).catch((err) => {
+            console.error("Rename failed:", err);
+            showToast({
+              message: getErrorMessage(err, "Could not rename theme."),
+              type: "error",
+              durationMs: 2200
+            });
+          });
+        }
+      };
+
+      input.addEventListener("keydown", (evt) => {
+        if (evt.key === "Enter") {
+          evt.preventDefault();
+          evt.stopPropagation();
+          commitRename();
         } else if (evt.key === "Escape") {
           cleanup(true);
         }
@@ -1620,11 +1675,11 @@ function captureVideoFrame(src) {
 }
 
 function deriveCloudThemeName(item) {
-  const remembered = getRememberedCloudThemeName(item?.id);
+  const remembered = getRememberedCloudThemeName(item?.id, item?.url, item?.media_type);
   if (remembered) return remembered;
   const explicit = String(item?.name || "").trim();
   if (explicit) {
-    rememberCloudThemeName(item?.id, explicit);
+    rememberCloudThemeName(item?.id, explicit, item?.url, item?.media_type);
     return explicit;
   }
   const storagePath = String(item?.storage_path || "").trim();
@@ -1637,13 +1692,13 @@ function deriveCloudThemeName(item) {
       .replace(/^\d{10,}-/i, "");
     const cleaned = decodeURIComponent(withoutPrefix).replace(/\.[^/.]+$/, "").trim();
     if (cleaned) {
-      rememberCloudThemeName(item?.id, cleaned);
+      rememberCloudThemeName(item?.id, cleaned, item?.url, item?.media_type);
       return cleaned;
     }
   }
   const fromUrl = deriveNameFromUrl(String(item?.url || ""));
   if (fromUrl && fromUrl !== "Untitled") {
-    rememberCloudThemeName(item?.id, fromUrl);
+    rememberCloudThemeName(item?.id, fromUrl, item?.url, item?.media_type);
     return fromUrl;
   }
   return "Theme";
@@ -1830,7 +1885,7 @@ async function deleteCloudTheme(theme) {
     });
     return false;
   }
-  forgetCloudThemeName(cloudId);
+  forgetCloudThemeName(cloudId, theme.src || cached?.url || "", theme.mediaType || cached?.media_type || "");
   removeThemeFromHistory({
     id: cloudId,
     src: theme.src || cached?.url || "",
@@ -1848,7 +1903,7 @@ async function deleteCloudTheme(theme) {
 
 async function renameCloudTheme(theme, name) {
   if (!supabaseClient || !currentUser || !theme.cloudId) return;
-  rememberCloudThemeName(theme.cloudId, name);
+  rememberCloudThemeName(theme.cloudId, name, theme.src || theme.url, theme.mediaType);
   cloudThemesCache = cloudThemesCache.map((item) =>
     item.id === theme.cloudId ? { ...item, name } : item
   );
@@ -1938,9 +1993,7 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
       });
       return false;
     }
-    const preview = mediaType === "image"
-      ? upload.publicUrl
-      : await captureVideoFrame(upload.publicUrl);
+    const preview = mediaType === "image" ? upload.publicUrl : "";
     const result = await withTimeout(
       saveCloudThemeRecord({
         kind: "local",
@@ -1999,6 +2052,19 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
       void loadCloudThemes().catch((err) => {
         console.error("Cloud theme sync failed:", err);
       });
+      if (mediaType === "video") {
+        void captureVideoFrame(upload.publicUrl).then((frame) => {
+          if (!frame || !localThemesGrid) return;
+          const card = localThemesGrid.querySelector(`.thumb[data-key="${CSS.escape(record.id)}"]`);
+          if (!card) return;
+          card.dataset.preview = frame;
+          card.style.backgroundImage = `url(${frame})`;
+          if (currentThemeView === "all") {
+            renderAllThemesGrid();
+            applySearchFilter(themeSearch?.value || "");
+          }
+        }).catch(() => {});
+      }
       if (currentThemeView === "all") {
         renderAllThemesGrid();
         applySearchFilter(themeSearch?.value || "");
@@ -2719,8 +2785,6 @@ function initThemeLibrary() {
     }
   });
 
-  loadAndRenderLocalThemes();
-  loadAndRenderOnlineThemes();
   setThemeView("default");
 }
 
@@ -3483,6 +3547,8 @@ async function initAuth() {
 
   if (!supabaseClient) {
     updateProfileUI();
+    loadAndRenderLocalThemes();
+    loadAndRenderOnlineThemes();
     return;
   }
 
