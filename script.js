@@ -188,6 +188,7 @@ const MAX_BACKGROUND_VIDEO_PRELOADS = IS_LOW_END_DEVICE ? 5 : 14;
 const BUILTIN_REMOTE_VIDEO_PRELOAD_LIMIT = IS_LOW_END_DEVICE ? 3 : 10;
 const MAX_VIDEO_WARM_INFLIGHT = IS_LOW_END_DEVICE ? 1 : 2;
 const CLOUD_SAVE_TIMEOUT_MS = IS_SLOW_NETWORK ? 22000 : 14000;
+const ONLINE_UPLOAD_STALL_TIMEOUT_MS = IS_SLOW_NETWORK ? 30000 : 18000;
 let builtInThemes = [];
 let queuedVideoPreloads = 0;
 const warmingVideoUrls = new Set();
@@ -196,6 +197,8 @@ let recentRenderSignature = "";
 let allThemesRenderSignature = "";
 let themesNameColumnAvailable = true;
 let themesNameColumnWarned = false;
+let onlineUploadChain = Promise.resolve();
+let onlineUploadBusy = false;
 const EXTRA_BUILTIN_THEMES = [
   { name: "Waterfall of Godafoss", src: "https://motionbgs.com/dl/hd/6", preview: "https://motionbgs.com/media/6/waterfall-of-godafoss-in-iceland.1920x1080.jpg", captureFirstFrame: true },
   { name: "Green Grass", src: "https://motionbgs.com/dl/hd/34", preview: "https://motionbgs.com/media/34/green-grass.1920x1080.jpg", captureFirstFrame: true },
@@ -997,6 +1000,20 @@ function createUploadPlaceholder(container, label) {
   };
 }
 
+function setOnlineUploadBusy(isBusy) {
+  onlineUploadBusy = isBusy;
+  if (addOnlineThemeBtn) {
+    addOnlineThemeBtn.disabled = isBusy;
+    addOnlineThemeBtn.classList.toggle("busy", isBusy);
+  }
+}
+
+function queueOnlineUpload(task) {
+  const run = onlineUploadChain.then(task, task);
+  onlineUploadChain = run.catch(() => {});
+  return run;
+}
+
 function attachThemeInteractions(card, theme, onSelect) {
   let blockNextClick = false;
   let touchTimer = null;
@@ -1494,12 +1511,28 @@ function captureVideoFrame(src) {
   });
 }
 
+function deriveCloudThemeName(item) {
+  const explicit = String(item?.name || "").trim();
+  if (explicit) return explicit;
+  const storagePath = String(item?.storage_path || "").trim();
+  if (storagePath) {
+    const parts = storagePath.split("/");
+    const last = parts[parts.length - 1] || "";
+    const withoutPrefix = last.replace(/^[a-f0-9-]+-\d+-/i, "");
+    const cleaned = withoutPrefix.replace(/\.[^/.]+$/, "").trim();
+    if (cleaned) return cleaned;
+  }
+  const fromUrl = deriveNameFromUrl(String(item?.url || ""));
+  if (fromUrl && fromUrl !== "Untitled") return fromUrl;
+  return "Theme";
+}
+
 function mapCloudTheme(item) {
   return {
     id: item.id,
     kind: item.kind,
     mediaType: item.media_type,
-    name: item.name || "Untitled",
+    name: deriveCloudThemeName(item),
     src: item.url,
     preview: item.preview_url || null,
     createdAt: item.created_at ? Date.parse(item.created_at) : 0,
@@ -1591,6 +1624,11 @@ function getErrorMessage(err, fallback = "Unknown error") {
   );
 }
 
+function isRlsPolicyError(err) {
+  const msg = getErrorMessage(err, "").toLowerCase();
+  return msg.includes("row-level security") || msg.includes("violates row-level security policy");
+}
+
 function isMissingThemesNameColumnError(err) {
   const msg = getErrorMessage(err, "").toLowerCase();
   return (
@@ -1649,14 +1687,30 @@ async function uploadThemeFile(file, id) {
 }
 
 async function deleteCloudTheme(theme) {
-  if (!supabaseClient || !currentUser || !theme.cloudId) return;
-  await supabaseClient.from("themes")
+  if (!supabaseClient || !currentUser || !theme.cloudId) return false;
+  const cloudId = theme.cloudId;
+  const cached = cloudThemesCache.find(item => item.id === cloudId) || null;
+  const storagePath = theme.storagePath || cached?.storage_path || "";
+  const { error: deleteError } = await supabaseClient.from("themes")
     .delete()
-    .eq("id", theme.cloudId)
+    .eq("id", cloudId)
     .eq("user_id", currentUser.id);
-  if (theme.storagePath) {
-    await supabaseClient.storage.from("themes").remove([theme.storagePath]);
+  if (deleteError) {
+    showToast({
+      message: getErrorMessage(deleteError, "Could not delete theme."),
+      type: "error",
+      durationMs: 2200
+    });
+    return false;
   }
+  cloudThemesCache = cloudThemesCache.filter(item => item.id !== cloudId);
+  if (storagePath) {
+    const { error: storageError } = await supabaseClient.storage.from("themes").remove([storagePath]);
+    if (storageError) {
+      console.error("Theme storage cleanup failed:", storageError);
+    }
+  }
+  return true;
 }
 
 async function renameCloudTheme(theme, name) {
@@ -1720,6 +1774,14 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
     if (!upload || upload.error || !upload.publicUrl) {
       if (upload?.error) {
         console.error("Theme storage upload failed:", upload.error);
+      }
+      if (isRlsPolicyError(upload?.error)) {
+        showToast({
+          message: "Cloud storage blocked by Supabase RLS policy. Enable storage policies for bucket 'themes'.",
+          type: "error",
+          durationMs: 3600
+        });
+        return;
       }
       showToast({
         message: getErrorMessage(upload?.error, "Cloud upload failed. Theme was not added."),
@@ -1967,131 +2029,158 @@ function setupDropZone(panel, handlers) {
 }
 
 async function handleAddOnlineTheme() {
-  const rawUrl = (onlineUrlInput.value || "").trim();
-  let url = normalizeUrl(rawUrl);
-  if (!url) return;
+  const queuedInput = (onlineUrlInput.value || "").trim();
+  return queueOnlineUpload(async () => {
+    const rawUrl = queuedInput;
+    let url = normalizeUrl(rawUrl);
+    if (!url) return;
 
-  const mediaType = getMediaTypeFromUrl(url);
-  if (!mediaType) {
-    showToast({
-      message: "Please use a direct .mp4, .png, or .jpg URL.",
-      type: "error",
-      durationMs: 2000
-    });
-    return;
-  }
-  const themeKey = getThemeUrlKey(url, mediaType);
-
-  const existingOnline = new Set([
-    ...(isLoggedIn()
-      ? getCloudThemesByKind("online").map(item => getThemeUrlKey(item.src || "", item.mediaType))
-      : getOnlineThemes().map(item => getThemeUrlKey(item.url || "", item.mediaType))),
-    ...Array.from(pendingOnlineUrls)
-  ]);
-  if (existingOnline.has(themeKey)) {
-    showToast({
-      message: `${deriveNameFromUrl(url)} already exists.`,
-      type: "error",
-      durationMs: 2000
-    });
-    return;
-  }
-  pendingOnlineUrls.add(themeKey);
-
-  const theme = {
-    id: makeId(),
-    kind: "online",
-    mediaType,
-    url,
-    name: deriveNameFromUrl(url),
-    createdAt: Date.now()
-  };
-
-  const placeholder = createUploadPlaceholder(onlineThemesGrid, theme.name);
-  let uploadCompleted = false;
-  let postRenderTask = null;
-
-  try {
-    if (isLoggedIn() && supabaseClient) {
-      const result = await withTimeout(
-        saveCloudThemeRecord({
-          kind: "online",
-          mediaType,
-          url,
-          name: theme.name
-        }),
-        CLOUD_SAVE_TIMEOUT_MS,
-        "Cloud save timed out. Please try again."
-      );
-      if (result?.data) {
-        const record = result.data;
-        const recordUrl = record.url || theme.url;
-        const recordName = record.name || theme.name;
-        const recordMediaType = record.media_type || mediaType;
-        const cachedRecord = {
-          ...record,
-          kind: record.kind || "online",
-          media_type: recordMediaType,
-          name: recordName,
-          url: recordUrl
-        };
-        cloudThemesCache = [
-          cachedRecord,
-          ...cloudThemesCache.filter(item => item.id !== cachedRecord.id)
-        ];
-        postRenderTask = renderOnlineTheme({
-          id: record.id,
-          kind: "online",
-          mediaType: recordMediaType,
-          url: recordUrl,
-          name: recordName,
-          createdAt: record.created_at ? Date.parse(record.created_at) : Date.now(),
-          storagePath: record.storage_path || "",
-          source: "cloud"
-        });
-        void loadCloudThemes().catch((err) => {
-          console.error("Cloud theme sync failed:", err);
-        });
-        uploadCompleted = true;
-      } else {
-        showToast({
-          message: getErrorMessage(result?.error, "Cloud save failed. URL was not added."),
-          type: "error",
-          durationMs: 2200
-        });
-      }
-    } else {
-      const list = getOnlineThemes();
-      const exists = list.some(item => item.url === theme.url && item.mediaType === theme.mediaType);
-      if (!exists) {
-        list.push(theme);
-        setOnlineThemes(list);
-      }
-      postRenderTask = renderOnlineTheme(theme);
-      promptLoginToast();
-      uploadCompleted = true;
-    }
-  } catch (err) {
-    showToast({
-      message: getErrorMessage(err, "Could not add URL theme."),
-      type: "error",
-      durationMs: 2200
-    });
-  } finally {
-    if (uploadCompleted) {
-      placeholder?.done();
-    } else {
-      placeholder?.fail();
-    }
-    pendingOnlineUrls.delete(themeKey);
-    onlineUrlInput.value = "";
-    if (postRenderTask) {
-      Promise.resolve(postRenderTask).catch((err) => {
-        console.error("Online theme render failed:", err);
-        loadAndRenderOnlineThemes();
+    setOnlineUploadBusy(true);
+    const mediaType = getMediaTypeFromUrl(url);
+    if (!mediaType) {
+      showToast({
+        message: "Please use a direct .mp4, .png, or .jpg URL.",
+        type: "error",
+        durationMs: 2000
       });
+      setOnlineUploadBusy(false);
+      return;
     }
-  }
+    const themeKey = getThemeUrlKey(url, mediaType);
+
+    const existingOnline = new Set([
+      ...(isLoggedIn()
+        ? getCloudThemesByKind("online").map(item => getThemeUrlKey(item.src || "", item.mediaType))
+        : getOnlineThemes().map(item => getThemeUrlKey(item.url || "", item.mediaType))),
+      ...Array.from(pendingOnlineUrls)
+    ]);
+    if (existingOnline.has(themeKey)) {
+      showToast({
+        message: `${deriveNameFromUrl(url)} already exists.`,
+        type: "error",
+        durationMs: 2000
+      });
+      setOnlineUploadBusy(false);
+      return;
+    }
+    pendingOnlineUrls.add(themeKey);
+
+    const theme = {
+      id: makeId(),
+      kind: "online",
+      mediaType,
+      url,
+      name: deriveNameFromUrl(url),
+      createdAt: Date.now()
+    };
+
+    const placeholder = createUploadPlaceholder(onlineThemesGrid, theme.name);
+    let uploadCompleted = false;
+    let postRenderTask = null;
+    let forceClosed = false;
+    const forceCloseTimer = setTimeout(() => {
+      forceClosed = true;
+      placeholder?.fail();
+      pendingOnlineUrls.delete(themeKey);
+      if ((onlineUrlInput.value || "").trim() === rawUrl) {
+        onlineUrlInput.value = "";
+      }
+      setOnlineUploadBusy(false);
+      showToast({
+        message: "Upload timed out. Please try again.",
+        type: "error",
+        durationMs: 2200
+      });
+    }, ONLINE_UPLOAD_STALL_TIMEOUT_MS);
+
+    try {
+      if (isLoggedIn() && supabaseClient) {
+        const result = await withTimeout(
+          saveCloudThemeRecord({
+            kind: "online",
+            mediaType,
+            url,
+            name: theme.name
+          }),
+          CLOUD_SAVE_TIMEOUT_MS,
+          "Cloud save timed out. Please try again."
+        );
+        if (result?.data) {
+          const record = result.data;
+          const recordUrl = record.url || theme.url;
+          const recordName = record.name || theme.name;
+          const recordMediaType = record.media_type || mediaType;
+          const cachedRecord = {
+            ...record,
+            kind: record.kind || "online",
+            media_type: recordMediaType,
+            name: recordName,
+            url: recordUrl
+          };
+          cloudThemesCache = [
+            cachedRecord,
+            ...cloudThemesCache.filter(item => item.id !== cachedRecord.id)
+          ];
+          postRenderTask = renderOnlineTheme({
+            id: record.id,
+            kind: "online",
+            mediaType: recordMediaType,
+            url: recordUrl,
+            name: recordName,
+            createdAt: record.created_at ? Date.parse(record.created_at) : Date.now(),
+            storagePath: record.storage_path || "",
+            source: "cloud"
+          });
+          void loadCloudThemes().catch((err) => {
+            console.error("Cloud theme sync failed:", err);
+          });
+          uploadCompleted = true;
+        } else {
+          showToast({
+            message: getErrorMessage(result?.error, "Cloud save failed. URL was not added."),
+            type: "error",
+            durationMs: 2200
+          });
+        }
+      } else {
+        const list = getOnlineThemes();
+        const exists = list.some(item => item.url === theme.url && item.mediaType === theme.mediaType);
+        if (!exists) {
+          list.push(theme);
+          setOnlineThemes(list);
+        }
+        postRenderTask = renderOnlineTheme(theme);
+        promptLoginToast();
+        uploadCompleted = true;
+      }
+    } catch (err) {
+      showToast({
+        message: getErrorMessage(err, "Could not add URL theme."),
+        type: "error",
+        durationMs: 2200
+      });
+    } finally {
+      clearTimeout(forceCloseTimer);
+      if (!forceClosed) {
+        if (uploadCompleted) {
+          placeholder?.done();
+        } else {
+          placeholder?.fail();
+        }
+        pendingOnlineUrls.delete(themeKey);
+        if ((onlineUrlInput.value || "").trim() === rawUrl) {
+          onlineUrlInput.value = "";
+        }
+        setOnlineUploadBusy(false);
+      }
+      if (postRenderTask) {
+        Promise.resolve(postRenderTask).catch((err) => {
+          console.error("Online theme render failed:", err);
+          loadAndRenderOnlineThemes();
+        });
+      }
+    }
+  });
 }
 
 async function renderOnlineTheme(theme) {
