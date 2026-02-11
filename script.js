@@ -155,6 +155,8 @@ const allThemesMediaFilter = { video: true, image: true };
 let videoWatchdog = null;
 let localRenderToken = 0;
 let onlineRenderToken = 0;
+let localRenderSignature = "";
+let onlineRenderSignature = "";
 const multiSelect = {
   local: { enabled: false, selected: new Set() },
   online: { enabled: false, selected: new Set() }
@@ -189,7 +191,8 @@ const MAX_BACKGROUND_VIDEO_PRELOADS = IS_LOW_END_DEVICE ? 5 : 14;
 const BUILTIN_REMOTE_VIDEO_PRELOAD_LIMIT = IS_LOW_END_DEVICE ? 3 : 10;
 const MAX_VIDEO_WARM_INFLIGHT = IS_LOW_END_DEVICE ? 1 : 2;
 const CLOUD_SAVE_TIMEOUT_MS = IS_SLOW_NETWORK ? 22000 : 14000;
-const CLOUD_UPLOAD_TIMEOUT_MS = IS_SLOW_NETWORK ? 240000 : 120000;
+const UPLOAD_ATTEMPT_TIMEOUT_MS = IS_SLOW_NETWORK ? 70000 : 35000;
+const UPLOAD_MAX_ATTEMPTS = IS_SLOW_NETWORK ? 3 : 2;
 const ONLINE_UPLOAD_STALL_TIMEOUT_MS = IS_SLOW_NETWORK ? 30000 : 18000;
 let builtInThemes = [];
 let queuedVideoPreloads = 0;
@@ -490,6 +493,71 @@ function rememberCloudThemeNameByUrl(url, mediaType, name) {
   const map = getCloudThemeNameCache();
   map[urlKey] = trimmed;
   setCloudThemeNameCache(map);
+}
+
+function getOnlineRenameFallbackName(url, mediaType) {
+  const normalized = normalizeUrl(url || "");
+  if (!normalized) return "";
+  const key = getThemeUrlKey(normalized, mediaType || "");
+  const list = readStoredJson(ONLINE_STORAGE_KEY, []);
+  if (!Array.isArray(list)) return "";
+  for (const item of list) {
+    const itemKey = getThemeUrlKey(item?.url || item?.src || "", item?.mediaType || "");
+    if (itemKey !== key) continue;
+    const name = String(item?.name || "").trim();
+    if (name) return name;
+  }
+  return "";
+}
+
+function persistOnlineRenameFallback(url, mediaType, name, id = "") {
+  const normalized = normalizeUrl(url || "");
+  const trimmed = String(name || "").trim();
+  if (!normalized || !trimmed) return;
+  const key = getThemeUrlKey(normalized, mediaType || "");
+  const list = readStoredJson(ONLINE_STORAGE_KEY, []);
+  const safe = Array.isArray(list) ? list : [];
+  let found = false;
+  const next = safe.map((item) => {
+    const itemKey = getThemeUrlKey(item?.url || item?.src || "", item?.mediaType || "");
+    if (itemKey !== key) return item;
+    found = true;
+    return {
+      ...item,
+      id: item.id || id || `online-${mediaType || "image"}-${encodeURIComponent(normalized).slice(0, 120)}`,
+      kind: "online",
+      mediaType: mediaType || item.mediaType || "image",
+      url: normalized,
+      name: trimmed
+    };
+  });
+  if (!found) {
+    next.push({
+      id: id || `online-${mediaType || "image"}-${encodeURIComponent(normalized).slice(0, 120)}`,
+      kind: "online",
+      mediaType: mediaType || "image",
+      url: normalized,
+      name: trimmed,
+      createdAt: Date.now()
+    });
+  }
+  setOnlineThemes(next);
+}
+
+function removeOnlineRenameFallback(url, mediaType, id = "") {
+  const normalized = normalizeUrl(url || "");
+  const key = getThemeUrlKey(normalized, mediaType || "");
+  const list = readStoredJson(ONLINE_STORAGE_KEY, []);
+  if (!Array.isArray(list) || !list.length) return;
+  const next = list.filter((item) => {
+    const itemKey = getThemeUrlKey(item?.url || item?.src || "", item?.mediaType || "");
+    if (itemKey === key) return false;
+    if (id && item?.id === id) return false;
+    return true;
+  });
+  if (next.length !== list.length) {
+    setOnlineThemes(next);
+  }
 }
 
 function removeThemeFromHistory(match = {}) {
@@ -1677,6 +1745,11 @@ function captureVideoFrame(src) {
 function deriveCloudThemeName(item) {
   const remembered = getRememberedCloudThemeName(item?.id, item?.url, item?.media_type);
   if (remembered) return remembered;
+  const fallback = getOnlineRenameFallbackName(item?.url, item?.media_type);
+  if (fallback) {
+    rememberCloudThemeName(item?.id, fallback, item?.url, item?.media_type);
+    return fallback;
+  }
   const explicit = String(item?.name || "").trim();
   if (explicit) {
     rememberCloudThemeName(item?.id, explicit, item?.url, item?.media_type);
@@ -1850,15 +1923,77 @@ async function uploadThemeFile(file, id) {
       .replace(/^-+|-+$/g, "")
       .slice(0, 64) || "theme";
     const path = `${currentUser.id}/${id}-${Date.now()}-${safeBase}.${ext}`;
-    const { error } = await supabaseClient.storage.from("themes").upload(path, file, {
-      upsert: true,
-      contentType: file.type || "application/octet-stream"
-    });
-    if (error) {
-      return { publicUrl: "", path, error };
+    const { data: sessionData } = await supabaseClient.auth.getSession();
+    const accessToken = sessionData?.session?.access_token;
+    if (!accessToken) {
+      return {
+        publicUrl: "",
+        path,
+        error: { message: "No auth session. Please sign in again." }
+      };
     }
-    const { data } = supabaseClient.storage.from("themes").getPublicUrl(path);
-    return { publicUrl: data?.publicUrl || "", path, error: null };
+
+    const encodedPath = path.split("/").map(part => encodeURIComponent(part)).join("/");
+    const endpoint = `${SUPABASE_URL}/storage/v1/object/themes/${encodedPath}`;
+    const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+    for (let attempt = 1; attempt <= UPLOAD_MAX_ATTEMPTS; attempt += 1) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), UPLOAD_ATTEMPT_TIMEOUT_MS);
+      try {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": `Bearer ${accessToken}`,
+            "x-upsert": "true",
+            "content-type": file.type || "application/octet-stream"
+          },
+          body: file,
+          signal: controller.signal
+        });
+        clearTimeout(timer);
+        if (response.ok) {
+          const { data } = supabaseClient.storage.from("themes").getPublicUrl(path);
+          return { publicUrl: data?.publicUrl || "", path, error: null };
+        }
+
+        let errorMessage = `Cloud upload failed (${response.status}).`;
+        try {
+          const payload = await response.json();
+          errorMessage = payload?.message || payload?.error || payload?.msg || errorMessage;
+        } catch {
+          const text = await response.text().catch(() => "");
+          if (text) errorMessage = text;
+        }
+
+        const retryable = response.status === 408 || response.status === 425 || response.status === 429 || response.status >= 500;
+        if (retryable && attempt < UPLOAD_MAX_ATTEMPTS) {
+          await sleep(250 * attempt);
+          continue;
+        }
+        return { publicUrl: "", path, error: { message: errorMessage } };
+      } catch (err) {
+        clearTimeout(timer);
+        const aborted = err?.name === "AbortError";
+        const retryable = aborted || /network|failed to fetch|timeout/i.test(getErrorMessage(err, ""));
+        if (retryable && attempt < UPLOAD_MAX_ATTEMPTS) {
+          await sleep(250 * attempt);
+          continue;
+        }
+        return {
+          publicUrl: "",
+          path,
+          error: {
+            message: aborted
+              ? "Cloud upload request timed out."
+              : getErrorMessage(err, "Cloud upload failed.")
+          }
+        };
+      }
+    }
+
+    return { publicUrl: "", path, error: { message: "Cloud upload failed after retry." } };
   } catch (err) {
     return {
       publicUrl: "",
@@ -1886,6 +2021,7 @@ async function deleteCloudTheme(theme) {
     return false;
   }
   forgetCloudThemeName(cloudId, theme.src || cached?.url || "", theme.mediaType || cached?.media_type || "");
+  removeOnlineRenameFallback(theme.src || cached?.url || "", theme.mediaType || cached?.media_type || "", cloudId);
   removeThemeFromHistory({
     id: cloudId,
     src: theme.src || cached?.url || "",
@@ -1904,6 +2040,7 @@ async function deleteCloudTheme(theme) {
 async function renameCloudTheme(theme, name) {
   if (!supabaseClient || !currentUser || !theme.cloudId) return;
   rememberCloudThemeName(theme.cloudId, name, theme.src || theme.url, theme.mediaType);
+  persistOnlineRenameFallback(theme.src || theme.url, theme.mediaType, name, theme.cloudId || theme.id);
   cloudThemesCache = cloudThemesCache.map((item) =>
     item.id === theme.cloudId ? { ...item, name } : item
   );
@@ -1969,11 +2106,7 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
   }
 
   if (isLoggedIn() && supabaseClient) {
-    const upload = await withTimeout(
-      uploadThemeFile(file, id),
-      CLOUD_UPLOAD_TIMEOUT_MS,
-      "Cloud upload timed out. Theme was not added."
-    );
+    const upload = await uploadThemeFile(file, id);
     if (!upload || upload.error || !upload.publicUrl) {
       if (upload?.error) {
         console.error("Theme storage upload failed:", upload.error);
@@ -2512,15 +2645,28 @@ async function renderOnlineTheme(theme) {
 async function loadAndRenderLocalThemes() {
   if (!localThemesGrid) return;
   const token = ++localRenderToken;
-  localThemesGrid.innerHTML = "";
-  for (const url of localObjectUrls.values()) {
-    URL.revokeObjectURL(url);
-  }
-  localObjectUrls.clear();
 
   if (!isLoggedIn()) {
     const stored = await loadLocalThemes();
     if (token !== localRenderToken) return;
+    const signature = `guest|${stored
+      .map(item => `${item.id || ""}|${item.name || ""}|${item.mediaType || ""}|${item.createdAt || 0}|${item.sig || ""}`)
+      .join("||")}`;
+    if (signature === localRenderSignature) {
+      renderRecentThemes();
+      if (currentThemeView === "all") {
+        renderAllThemesGrid();
+      }
+      applySearchFilter(themeSearch?.value || "");
+      return;
+    }
+    localRenderSignature = signature;
+    localThemesGrid.innerHTML = "";
+    for (const url of localObjectUrls.values()) {
+      URL.revokeObjectURL(url);
+    }
+    localObjectUrls.clear();
+
     for (const item of stored) {
       if (!item.sig && item.blob) {
         item.sig = `${item.name}|${item.blob.size}|${item.blob.type}`;
@@ -2567,6 +2713,24 @@ async function loadAndRenderLocalThemes() {
     }
   } else {
     const cloudLocal = getCloudThemesByKind("local");
+    const signature = `cloud|${cloudLocal
+      .map(theme => `${theme.id || ""}|${theme.name || ""}|${theme.mediaType || ""}|${theme.src || ""}|${theme.preview || ""}|${theme.createdAt || 0}`)
+      .join("||")}`;
+    if (signature === localRenderSignature) {
+      renderRecentThemes();
+      if (currentThemeView === "all") {
+        renderAllThemesGrid();
+      }
+      applySearchFilter(themeSearch?.value || "");
+      return;
+    }
+    localRenderSignature = signature;
+    localThemesGrid.innerHTML = "";
+    for (const url of localObjectUrls.values()) {
+      URL.revokeObjectURL(url);
+    }
+    localObjectUrls.clear();
+
     for (const theme of cloudLocal) {
       let preview = theme.preview;
       if (!preview) {
@@ -2603,10 +2767,23 @@ async function loadAndRenderLocalThemes() {
 async function loadAndRenderOnlineThemes() {
   if (!onlineThemesGrid) return;
   const token = ++onlineRenderToken;
-  onlineThemesGrid.innerHTML = "";
 
   if (isLoggedIn()) {
     const cloudOnline = getCloudThemesByKind("online");
+    const signature = `cloud|${cloudOnline
+      .map(theme => `${theme.id || ""}|${theme.name || ""}|${theme.mediaType || ""}|${theme.src || ""}|${theme.preview || ""}|${theme.createdAt || 0}`)
+      .join("||")}`;
+    if (signature === onlineRenderSignature) {
+      renderRecentThemes();
+      if (currentThemeView === "all") {
+        renderAllThemesGrid();
+      }
+      applySearchFilter(themeSearch?.value || "");
+      return;
+    }
+    onlineRenderSignature = signature;
+    onlineThemesGrid.innerHTML = "";
+
     for (const theme of cloudOnline) {
       await renderOnlineTheme({
         id: theme.id,
@@ -2624,6 +2801,20 @@ async function loadAndRenderOnlineThemes() {
   } else {
     const renderedKeys = new Set();
     const localList = getOnlineThemes();
+    const signature = `guest|${localList
+      .map(theme => `${theme.id || ""}|${theme.name || ""}|${theme.mediaType || ""}|${theme.url || theme.src || ""}|${theme.createdAt || 0}`)
+      .join("||")}`;
+    if (signature === onlineRenderSignature) {
+      renderRecentThemes();
+      if (currentThemeView === "all") {
+        renderAllThemesGrid();
+      }
+      applySearchFilter(themeSearch?.value || "");
+      return;
+    }
+    onlineRenderSignature = signature;
+    onlineThemesGrid.innerHTML = "";
+
     for (const theme of localList) {
       const key = getThemeUrlKey(theme.url || theme.src || "", theme.mediaType);
       if (key && renderedKeys.has(key)) continue;
