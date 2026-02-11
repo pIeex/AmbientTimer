@@ -190,7 +190,6 @@ const BUILTIN_REMOTE_VIDEO_PRELOAD_LIMIT = IS_LOW_END_DEVICE ? 3 : 10;
 const MAX_VIDEO_WARM_INFLIGHT = IS_LOW_END_DEVICE ? 1 : 2;
 const CLOUD_SAVE_TIMEOUT_MS = IS_SLOW_NETWORK ? 22000 : 14000;
 const ONLINE_UPLOAD_STALL_TIMEOUT_MS = IS_SLOW_NETWORK ? 30000 : 18000;
-const CLOUD_UPLOAD_TIMEOUT_MS = IS_SLOW_NETWORK ? 90000 : 45000;
 let builtInThemes = [];
 let queuedVideoPreloads = 0;
 const warmingVideoUrls = new Set();
@@ -1674,22 +1673,6 @@ function withTimeout(promise, timeoutMs, timeoutMessage) {
   });
 }
 
-function withTimeoutValue(promise, timeoutMs, timeoutMessage) {
-  let timeoutId = null;
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => {
-      timeoutId = setTimeout(() => {
-        reject(new Error(timeoutMessage || "Request timed out."));
-      }, timeoutMs);
-    })
-  ]).finally(() => {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-    }
-  });
-}
-
 async function saveCloudThemeRecord({ kind, mediaType, url, storagePath = "", name = "Untitled" }) {
   if (!supabaseClient || !currentUser) return null;
   const basePayload = {
@@ -1904,21 +1887,7 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
   }
 
   if (isLoggedIn() && supabaseClient) {
-    let upload = null;
-    try {
-      upload = await withTimeoutValue(
-        uploadThemeFile(file, id),
-        CLOUD_UPLOAD_TIMEOUT_MS,
-        "Cloud upload timed out."
-      );
-    } catch (err) {
-      showToast({
-        message: getErrorMessage(err, "Cloud upload timed out."),
-        type: "error",
-        durationMs: 2600
-      });
-      return false;
-    }
+    const upload = await uploadThemeFile(file, id);
     if (!upload || upload.error || !upload.publicUrl) {
       if (upload?.error) {
         console.error("Theme storage upload failed:", upload.error);
