@@ -119,6 +119,7 @@ const ONLINE_STORAGE_KEY = "ambientTimerOnlineThemes";
 const THEME_RECENT_KEY = "ambientRecentThemes";
 const THEME_USAGE_KEY = "ambientThemeUsage";
 const GUEST_SAVE_TOAST_SEEN_KEY = "ambientGuestSaveToastSeen";
+const CLOUD_THEME_NAME_CACHE_KEY = "ambientCloudThemeNameCache";
 
 const SUPABASE_URL = window.SUPABASE_URL || "https://fytjxvaxxtmnaoynpxqy.supabase.co";
 const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5dGp4dmF4eHRtbmFveW5weHF5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAxMTMzMjEsImV4cCI6MjA4NTY4OTMyMX0.CxVEQUgYEfkVqtyj78pyDCuWfgqU98r3oFTzS7ijM-0";
@@ -189,6 +190,7 @@ const BUILTIN_REMOTE_VIDEO_PRELOAD_LIMIT = IS_LOW_END_DEVICE ? 3 : 10;
 const MAX_VIDEO_WARM_INFLIGHT = IS_LOW_END_DEVICE ? 1 : 2;
 const CLOUD_SAVE_TIMEOUT_MS = IS_SLOW_NETWORK ? 22000 : 14000;
 const ONLINE_UPLOAD_STALL_TIMEOUT_MS = IS_SLOW_NETWORK ? 30000 : 18000;
+const CLOUD_UPLOAD_TIMEOUT_MS = IS_SLOW_NETWORK ? 90000 : 45000;
 let builtInThemes = [];
 let queuedVideoPreloads = 0;
 const warmingVideoUrls = new Set();
@@ -422,6 +424,72 @@ function getRecentThemes() {
 
 function setRecentThemes(list) {
   localStorage.setItem(THEME_RECENT_KEY, JSON.stringify(Array.isArray(list) ? list : []));
+}
+
+function getCloudThemeNameCache() {
+  const map = readStoredJson(CLOUD_THEME_NAME_CACHE_KEY, {});
+  return map && typeof map === "object" ? map : {};
+}
+
+function setCloudThemeNameCache(map) {
+  localStorage.setItem(CLOUD_THEME_NAME_CACHE_KEY, JSON.stringify(map || {}));
+}
+
+function rememberCloudThemeName(id, name) {
+  if (!id) return;
+  const trimmed = String(name || "").trim();
+  if (!trimmed) return;
+  const map = getCloudThemeNameCache();
+  map[id] = trimmed;
+  setCloudThemeNameCache(map);
+}
+
+function forgetCloudThemeName(id) {
+  if (!id) return;
+  const map = getCloudThemeNameCache();
+  if (!(id in map)) return;
+  delete map[id];
+  setCloudThemeNameCache(map);
+}
+
+function getRememberedCloudThemeName(id) {
+  if (!id) return "";
+  const map = getCloudThemeNameCache();
+  return String(map[id] || "").trim();
+}
+
+function removeThemeFromHistory(match = {}) {
+  const matchId = String(match.id || match.cloudId || "").trim();
+  const matchSrc = normalizeSrc(match.src || match.url || "");
+
+  const recent = getRecentThemes();
+  const nextRecent = recent.filter((item) => {
+    if (matchId && item.id === matchId) return false;
+    if (matchSrc && normalizeSrc(item.src || "") === matchSrc) return false;
+    return true;
+  });
+  if (nextRecent.length !== recent.length) {
+    setRecentThemes(nextRecent);
+  }
+
+  if (matchSrc) {
+    const usage = getThemeUsageMap();
+    let changed = false;
+    Object.keys(usage).forEach((key) => {
+      if (key.endsWith(`|${matchSrc}`)) {
+        delete usage[key];
+        changed = true;
+      }
+    });
+    if (changed) {
+      setThemeUsageMap(usage);
+    }
+  }
+
+  renderRecentThemes();
+  if (currentThemeView === "all") {
+    renderAllThemesGrid();
+  }
 }
 
 function recordThemeSelection(theme) {
@@ -711,7 +779,13 @@ function deriveNameFromUrl(url) {
     const clean = url.split("?")[0];
     const parts = clean.split("/");
     const last = parts[parts.length - 1] || "Untitled";
-    return decodeURIComponent(last.replace(/\.[^/.]+$/, "")) || "Untitled";
+    const base = decodeURIComponent(last.replace(/\.[^/.]+$/, ""));
+    const stripped = base
+      .replace(/^[a-f0-9-]{16,}-\d+-/i, "")
+      .replace(/^[a-z0-9_-]{20,}-\d+-/i, "")
+      .replace(/^\d{10,}-/i, "")
+      .trim();
+    return stripped || "Untitled";
   } catch {
     return "Untitled";
   }
@@ -756,7 +830,10 @@ async function deleteLocalTheme(id) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(LOCAL_STORE_NAME, "readwrite");
     tx.objectStore(LOCAL_STORE_NAME).delete(id);
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => {
+      removeThemeFromHistory({ id });
+      resolve();
+    };
     tx.onerror = () => reject(tx.error);
   });
 }
@@ -1195,11 +1272,14 @@ function renderThemeCard(theme, container, options) {
         message: "This cannot be undone."
       });
       if (!ok) return;
-      await animateRemoveCard(card);
+      let deleted = true;
       if (options.onDelete) {
-        await options.onDelete(theme);
+        deleted = (await options.onDelete(theme)) !== false;
       } else if (theme.source === "cloud") {
-        await deleteCloudTheme(theme);
+        deleted = await deleteCloudTheme(theme);
+      }
+      if (deleted) {
+        await animateRemoveCard(card);
       }
     });
     card.appendChild(del);
@@ -1232,6 +1312,10 @@ function animateRemoveCard(card) {
     card.classList.remove("pop-in");
     card.classList.add("pop-out");
     setTimeout(() => {
+      if (card.isConnected) {
+        card.remove();
+      }
+      scheduleFilterAndFit();
       resolve();
       fitActivePage();
     }, 220);
@@ -1318,8 +1402,17 @@ async function deleteSelected(group) {
         await deleteCloudTheme({ cloudId: key });
       }
     } else {
-      const list = getOnlineThemes().filter(item => !keys.includes(item.id) && !keys.includes(item.url));
+      const current = getOnlineThemes();
+      const removed = current.filter(item => keys.includes(item.id) || keys.includes(item.url));
+      const list = current.filter(item => !keys.includes(item.id) && !keys.includes(item.url));
       setOnlineThemes(list);
+      removed.forEach((item) => {
+        removeThemeFromHistory({
+          id: item.id,
+          src: item.url || item.src || "",
+          mediaType: item.mediaType || ""
+        });
+      });
     }
     loadAndRenderOnlineThemes();
   }
@@ -1512,18 +1605,32 @@ function captureVideoFrame(src) {
 }
 
 function deriveCloudThemeName(item) {
+  const remembered = getRememberedCloudThemeName(item?.id);
+  if (remembered) return remembered;
   const explicit = String(item?.name || "").trim();
-  if (explicit) return explicit;
+  if (explicit) {
+    rememberCloudThemeName(item?.id, explicit);
+    return explicit;
+  }
   const storagePath = String(item?.storage_path || "").trim();
   if (storagePath) {
     const parts = storagePath.split("/");
     const last = parts[parts.length - 1] || "";
-    const withoutPrefix = last.replace(/^[a-f0-9-]+-\d+-/i, "");
-    const cleaned = withoutPrefix.replace(/\.[^/.]+$/, "").trim();
-    if (cleaned) return cleaned;
+    const withoutPrefix = last
+      .replace(/^[a-f0-9-]{16,}-\d+-/i, "")
+      .replace(/^[a-z0-9_-]{20,}-\d+-/i, "")
+      .replace(/^\d{10,}-/i, "");
+    const cleaned = decodeURIComponent(withoutPrefix).replace(/\.[^/.]+$/, "").trim();
+    if (cleaned) {
+      rememberCloudThemeName(item?.id, cleaned);
+      return cleaned;
+    }
   }
   const fromUrl = deriveNameFromUrl(String(item?.url || ""));
-  if (fromUrl && fromUrl !== "Untitled") return fromUrl;
+  if (fromUrl && fromUrl !== "Untitled") {
+    rememberCloudThemeName(item?.id, fromUrl);
+    return fromUrl;
+  }
   return "Theme";
 }
 
@@ -1558,6 +1665,22 @@ function withTimeout(promise, timeoutMs, timeoutMessage) {
           data: null,
           error: { message: timeoutMessage || "Request timed out." }
         });
+      }, timeoutMs);
+    })
+  ]).finally(() => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  });
+}
+
+function withTimeoutValue(promise, timeoutMs, timeoutMessage) {
+  let timeoutId = null;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error(timeoutMessage || "Request timed out."));
       }, timeoutMs);
     })
   ]).finally(() => {
@@ -1667,7 +1790,12 @@ async function uploadThemeFile(file, id) {
       };
     }
     const ext = file.name.split(".").pop() || "mp4";
-    const path = `${currentUser.id}/${id}-${Date.now()}.${ext}`;
+    const safeBase = deriveNameFromFile(file)
+      .replace(/[^a-z0-9._-]+/gi, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 64) || "theme";
+    const path = `${currentUser.id}/${id}-${Date.now()}-${safeBase}.${ext}`;
     const { error } = await supabaseClient.storage.from("themes").upload(path, file, {
       upsert: true,
       contentType: file.type || "application/octet-stream"
@@ -1703,6 +1831,12 @@ async function deleteCloudTheme(theme) {
     });
     return false;
   }
+  forgetCloudThemeName(cloudId);
+  removeThemeFromHistory({
+    id: cloudId,
+    src: theme.src || cached?.url || "",
+    mediaType: theme.mediaType || cached?.media_type || ""
+  });
   cloudThemesCache = cloudThemesCache.filter(item => item.id !== cloudId);
   if (storagePath) {
     const { error: storageError } = await supabaseClient.storage.from("themes").remove([storagePath]);
@@ -1715,8 +1849,8 @@ async function deleteCloudTheme(theme) {
 
 async function renameCloudTheme(theme, name) {
   if (!supabaseClient || !currentUser || !theme.cloudId) return;
+  rememberCloudThemeName(theme.cloudId, name);
   if (!themesNameColumnAvailable) {
-    notifyThemesNameColumnMissing();
     return;
   }
   const { error } = await supabaseClient.from("themes")
@@ -1737,7 +1871,7 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
       type: "error",
       durationMs: 2200
     });
-    return;
+    return false;
   }
   if (!mediaType) {
     showToast({
@@ -1745,7 +1879,7 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
       type: "error",
       durationMs: 2000
     });
-    return;
+    return false;
   }
   const id = makeId();
   const name = deriveNameFromFile(file);
@@ -1757,7 +1891,7 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
       type: "error",
       durationMs: 2000
     });
-    return;
+    return false;
   }
 
   if (options.cloudNameSet && options.cloudNameSet.has(name.toLowerCase())) {
@@ -1766,11 +1900,25 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
       type: "error",
       durationMs: 2000
     });
-    return;
+    return false;
   }
 
   if (isLoggedIn() && supabaseClient) {
-    const upload = await uploadThemeFile(file, id);
+    let upload = null;
+    try {
+      upload = await withTimeoutValue(
+        uploadThemeFile(file, id),
+        CLOUD_UPLOAD_TIMEOUT_MS,
+        "Cloud upload timed out."
+      );
+    } catch (err) {
+      showToast({
+        message: getErrorMessage(err, "Cloud upload timed out."),
+        type: "error",
+        durationMs: 2600
+      });
+      return false;
+    }
     if (!upload || upload.error || !upload.publicUrl) {
       if (upload?.error) {
         console.error("Theme storage upload failed:", upload.error);
@@ -1781,32 +1929,38 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
           type: "error",
           durationMs: 3600
         });
-        return;
+        return false;
       }
       showToast({
         message: getErrorMessage(upload?.error, "Cloud upload failed. Theme was not added."),
         type: "error",
         durationMs: 2800
       });
-      return;
+      return false;
     }
     const preview = mediaType === "image"
       ? upload.publicUrl
       : await captureVideoFrame(upload.publicUrl);
-    const result = await saveCloudThemeRecord({
-      kind: "local",
-      mediaType,
-      name,
-      url: upload.publicUrl,
-      storagePath: upload.path
-    });
+    const result = await withTimeout(
+      saveCloudThemeRecord({
+        kind: "local",
+        mediaType,
+        name,
+        url: upload.publicUrl,
+        storagePath: upload.path
+      }),
+      CLOUD_SAVE_TIMEOUT_MS,
+      "Cloud save timed out. Theme was not added."
+    );
     if (result?.data) {
       const record = result.data;
+      const recordName = record.name || name;
+      rememberCloudThemeName(record.id, recordName);
       const theme = {
         id: record.id,
         kind: "local",
         mediaType,
-        name: record.name || name,
+        name: recordName,
         src: upload.publicUrl,
         preview,
         createdAt: record.created_at ? Date.parse(record.created_at) : Date.now(),
@@ -1824,8 +1978,11 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
           loadAndRenderLocalThemes();
         },
         onDelete: async (t) => {
-          await deleteCloudTheme(t);
-          loadAndRenderLocalThemes();
+          const ok = await deleteCloudTheme(t);
+          if (ok) {
+            loadAndRenderLocalThemes();
+          }
+          return ok;
         }
       });
       if (currentThemeView === "all") {
@@ -1833,7 +1990,7 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
         applySearchFilter(themeSearch?.value || "");
       }
       if (autoApply) applyTheme(theme);
-      return;
+      return true;
     }
     if (upload.path) {
       await supabaseClient.storage.from("themes").remove([upload.path]);
@@ -1843,7 +2000,7 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
       type: "error",
       durationMs: 2200
     });
-    return;
+    return false;
   }
 
   await saveLocalTheme({
@@ -1880,6 +2037,7 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
       if (url) URL.revokeObjectURL(url);
       localObjectUrls.delete(t.id);
       loadAndRenderLocalThemes();
+      return true;
     }
   });
   if (currentThemeView === "all") {
@@ -1895,6 +2053,7 @@ async function addLocalThemeFromFile(file, autoApply = false, options = {}) {
   if (autoApply) {
     applyTheme(theme);
   }
+  return true;
 }
 
 async function handleLocalUpload(event) {
@@ -1944,13 +2103,20 @@ async function processLocalFiles(files) {
     }
     pendingLocalSigs.add(sig);
     const placeholder = createUploadPlaceholder(localThemesGrid, name);
+    let added = false;
     try {
-      await addLocalThemeFromFile(file, false, { existingSigSet, cloudNameSet, placeholder });
-      existingSigSet.add(sig);
-      cloudNameSet.add(deriveNameFromFile(file).toLowerCase());
+      added = await addLocalThemeFromFile(file, false, { existingSigSet, cloudNameSet, placeholder });
+      if (added) {
+        existingSigSet.add(sig);
+        cloudNameSet.add(deriveNameFromFile(file).toLowerCase());
+      }
     } finally {
       pendingLocalSigs.delete(sig);
-      placeholder?.done();
+      if (added) {
+        placeholder?.done();
+      } else {
+        placeholder?.fail();
+      }
     }
   }
 }
@@ -2110,6 +2276,7 @@ async function handleAddOnlineTheme() {
           const recordUrl = record.url || theme.url;
           const recordName = record.name || theme.name;
           const recordMediaType = record.media_type || mediaType;
+          rememberCloudThemeName(record.id, recordName);
           const cachedRecord = {
             ...record,
             kind: record.kind || "online",
@@ -2232,12 +2399,22 @@ async function renderOnlineTheme(theme) {
     },
     onDelete: async (t) => {
       if (t.source === "cloud") {
-        await deleteCloudTheme(t);
+        const ok = await deleteCloudTheme(t);
+        if (ok) {
+          loadAndRenderOnlineThemes();
+        }
+        return ok;
       } else {
         const list = getOnlineThemes().filter(item => item.id !== t.id);
         setOnlineThemes(list);
+        removeThemeFromHistory({
+          id: t.id,
+          src: t.src || t.url || "",
+          mediaType: t.mediaType || ""
+        });
+        loadAndRenderOnlineThemes();
+        return true;
       }
-      loadAndRenderOnlineThemes();
     }
   });
   if (currentThemeView === "all") {
@@ -2298,6 +2475,7 @@ async function loadAndRenderLocalThemes() {
           if (url) URL.revokeObjectURL(url);
           localObjectUrls.delete(t.id);
           loadAndRenderLocalThemes();
+          return true;
         }
       });
     }
@@ -2319,8 +2497,11 @@ async function loadAndRenderLocalThemes() {
         await renameCloudTheme(t, nextName);
       },
       onDelete: async (t) => {
-        await deleteCloudTheme(t);
-        loadAndRenderLocalThemes();
+        const ok = await deleteCloudTheme(t);
+        if (ok) {
+          loadAndRenderLocalThemes();
+        }
+        return ok;
       }
     });
   }
@@ -3024,6 +3205,7 @@ async function initAuth() {
       localStorage.removeItem(THEME_RECENT_KEY);
       localStorage.removeItem(THEME_USAGE_KEY);
       localStorage.removeItem(GUEST_SAVE_TOAST_SEEN_KEY);
+      localStorage.removeItem(CLOUD_THEME_NAME_CACHE_KEY);
       renderRecentThemes();
     }
   });
