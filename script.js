@@ -294,6 +294,13 @@ function transitionTo(id) {
     return;
   }
   if (active.id === id) return;
+  // Prevent delayed hover-preview timers from re-entering preview mode after navigation.
+  clearTimeout(hoverPreviewTimer);
+  clearTimeout(hoverResetTimer);
+  lastHoveredCard = null;
+  if (id !== "page1") {
+    isPreviewMode = false;
+  }
   if (active.id === "page1" && id === "page2") {
     document.body.classList.add("tint-exit");
   }
@@ -343,6 +350,11 @@ function chooseBg(src) {
 
 function applyTheme(theme, { previewOnly = false } = {}) {
   isPreviewMode = previewOnly;
+  if (!previewOnly) {
+    clearTimeout(hoverPreviewTimer);
+    clearTimeout(hoverResetTimer);
+    lastHoveredCard = null;
+  }
   if (previewOnly) {
     if (currentPreviewTheme.src === theme.src && currentPreviewTheme.mediaType === theme.mediaType) {
       return;
@@ -3285,7 +3297,9 @@ async function handleLogout() {
           localStorage.removeItem(key);
         }
       });
-    } catch {}
+    } catch (err) {
+      console.error("Logout error:", err);
+    }
     await refreshAuthState();
     currentUser = null;
     updateProfileUI();
@@ -3831,10 +3845,17 @@ function startTimerFromSeconds(totalSeconds) {
   remainingSeconds = totalSeconds;
   paused = false;
   pauseStartedMs = null;
+  isPreviewMode = false;
+  clearTimeout(hoverPreviewTimer);
+  clearTimeout(hoverResetTimer);
+  lastHoveredCard = null;
   timerEndMs = Date.now() + totalSeconds * 1000;
   setTimerDisplayPausedVisual(false);
   if (confirmedTheme?.mediaType) {
     setMediaMode(confirmedTheme.mediaType);
+    if (confirmedTheme.mediaType === "video" && confirmedTheme.src) {
+      transitionToVideo(confirmedTheme.src);
+    }
   }
 
   // Show timer page
@@ -4150,14 +4171,14 @@ function transitionToImage(src) {
 }
 
 function startVideoWatchdog() {
-  if (videoWatchdog || isPreviewMode) return;
+  if (videoWatchdog) return;
   videoWatchdog = setInterval(() => {
     const active = getActiveVideo();
     if (!active || !currentVideoSrc) return;
     const isStuck = Number.isFinite(active.currentTime) && Number.isFinite(active.duration)
       ? active.currentTime >= active.duration - 0.08
       : false;
-    if ((active.ended || isStuck) && !isForceRestarting && !isPreviewMode) {
+    if ((active.ended || isStuck) && !isForceRestarting) {
       forceSeamlessRestart();
     }
   }, 1000);
@@ -4294,4 +4315,19 @@ function handleVideoTimeUpdate(e) {
   }
 }
 
-initVideoElements();
+// Wait for DOM to be ready before initializing video elements
+// Ensure initVideoElements runs only once
+let __videosInit = false;
+function safeInitVideoElements() {
+  if (__videosInit) return;
+  __videosInit = true;
+  initVideoElements();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    safeInitVideoElements();
+  }, { once: true });
+} else {
+  safeInitVideoElements();
+}
