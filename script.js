@@ -200,6 +200,7 @@ const CLOUD_SAVE_TIMEOUT_MS = IS_SLOW_NETWORK ? 22000 : 14000;
 const UPLOAD_ATTEMPT_TIMEOUT_MS = IS_SLOW_NETWORK ? 70000 : 35000;
 const UPLOAD_MAX_ATTEMPTS = IS_SLOW_NETWORK ? 3 : 2;
 const ONLINE_UPLOAD_STALL_TIMEOUT_MS = IS_SLOW_NETWORK ? 30000 : 18000;
+const THEME_SELECT_DEDUP_MS = 700;
 let builtInThemes = [];
 let queuedVideoPreloads = 0;
 const warmingVideoUrls = new Set();
@@ -210,6 +211,7 @@ let themesNameColumnAvailable = true;
 let themesNameColumnWarned = false;
 let onlineUploadChain = Promise.resolve();
 let onlineUploadBusy = false;
+let themeSelectLockUntil = 0;
 const BUILTIN_TIMER_PRESETS = [
   { seconds: 3600, label: "1 Hour" },
   { seconds: 5400, label: "1h 30m" },
@@ -1307,11 +1309,18 @@ function attachThemeInteractions(card, theme, onSelect) {
   let blockNextClick = false;
   let touchTimer = null;
 
-  card.addEventListener("click", () => {
+  card.addEventListener("click", (e) => {
     if (isTouchDevice && blockNextClick) {
       blockNextClick = false;
       return;
     }
+    const now = Date.now();
+    if (now < themeSelectLockUntil) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    themeSelectLockUntil = now + THEME_SELECT_DEDUP_MS;
     onSelect();
   });
 
