@@ -124,6 +124,7 @@ const THEME_RECENT_KEY = "ambientRecentThemes";
 const THEME_USAGE_KEY = "ambientThemeUsage";
 const GUEST_SAVE_TOAST_SEEN_KEY = "ambientGuestSaveToastSeen";
 const CLOUD_THEME_NAME_CACHE_KEY = "ambientCloudThemeNameCache";
+const LOCAL_THEME_NAME_CACHE_KEY = "ambientLocalThemeNameCache";
 const TIMER_CUSTOM_PRESETS_KEY = "ambientTimerCustomPresets";
 
 const SUPABASE_URL = window.SUPABASE_URL || "https://fytjxvaxxtmnaoynpxqy.supabase.co";
@@ -461,6 +462,41 @@ function getCloudThemeNameCache() {
 
 function setCloudThemeNameCache(map) {
   localStorage.setItem(CLOUD_THEME_NAME_CACHE_KEY, JSON.stringify(map || {}));
+}
+
+function getLocalThemeNameCache() {
+  const map = readStoredJson(LOCAL_THEME_NAME_CACHE_KEY, {});
+  return map && typeof map === "object" ? map : {};
+}
+
+function setLocalThemeNameCache(map) {
+  localStorage.setItem(LOCAL_THEME_NAME_CACHE_KEY, JSON.stringify(map || {}));
+}
+
+function rememberLocalThemeName(id, name) {
+  const key = String(id || "").trim();
+  const trimmed = String(name || "").trim();
+  if (!key || !trimmed) return;
+  const map = getLocalThemeNameCache();
+  map[`id:${key}`] = trimmed;
+  setLocalThemeNameCache(map);
+}
+
+function forgetLocalThemeName(id) {
+  const key = String(id || "").trim();
+  if (!key) return;
+  const map = getLocalThemeNameCache();
+  const idKey = `id:${key}`;
+  if (!(idKey in map)) return;
+  delete map[idKey];
+  setLocalThemeNameCache(map);
+}
+
+function getRememberedLocalThemeName(id) {
+  const key = String(id || "").trim();
+  if (!key) return "";
+  const map = getLocalThemeNameCache();
+  return String(map[`id:${key}`] || "").trim();
 }
 
 function cloudNameUrlKey(url, mediaType) {
@@ -984,6 +1020,7 @@ async function deleteLocalTheme(id) {
     const tx = db.transaction(LOCAL_STORE_NAME, "readwrite");
     tx.objectStore(LOCAL_STORE_NAME).delete(id);
     tx.oncomplete = () => {
+      forgetLocalThemeName(id);
       removeThemeFromHistory({ id });
       resolve();
     };
@@ -992,17 +1029,24 @@ async function deleteLocalTheme(id) {
 }
 
 async function updateLocalThemeName(id, name) {
+  const key = String(id || "").trim();
+  const trimmed = String(name || "").trim();
+  if (!key || !trimmed) return;
+
+  rememberLocalThemeName(key, trimmed);
   const db = await openThemeDb();
-  return new Promise((resolve, reject) => {
+  const item = await new Promise((resolve, reject) => {
+    const tx = db.transaction(LOCAL_STORE_NAME, "readonly");
+    const req = tx.objectStore(LOCAL_STORE_NAME).get(key);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+  if (!item) return;
+
+  item.name = trimmed;
+  await new Promise((resolve, reject) => {
     const tx = db.transaction(LOCAL_STORE_NAME, "readwrite");
-    const store = tx.objectStore(LOCAL_STORE_NAME);
-    const req = store.get(id);
-    req.onsuccess = () => {
-      const item = req.result;
-      if (!item) return resolve();
-      item.name = name;
-      store.put(item);
-    };
+    tx.objectStore(LOCAL_STORE_NAME).put(item);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -2734,7 +2778,8 @@ async function loadAndRenderLocalThemes() {
         preview = await captureVideoFrame(src);
       }
       if (token !== localRenderToken) return;
-      const name = item.name || deriveNameFromFile(item.blob);
+      const rememberedName = getRememberedLocalThemeName(item.id);
+      const name = rememberedName || item.name || deriveNameFromFile(item.blob);
 
       const theme = {
         id: item.id,
@@ -3541,6 +3586,7 @@ async function initAuth() {
       localStorage.removeItem(THEME_USAGE_KEY);
       localStorage.removeItem(GUEST_SAVE_TOAST_SEEN_KEY);
       localStorage.removeItem(CLOUD_THEME_NAME_CACHE_KEY);
+      localStorage.removeItem(LOCAL_THEME_NAME_CACHE_KEY);
       renderRecentThemes();
     }
   });
