@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Ambient Timer</title>
   <link rel="icon" href="assests/icon.png">
-  <link rel="stylesheet" href="style.css?v=20260204i">
+  <link rel="stylesheet" href="style.css?v=20260218a">
 </head>
 
 <body>
@@ -344,12 +344,7 @@
       <button id="timeBackBtn" class="back-btn">Go back</button>
       <h1>Set Your Time</h1>
 
-      <div class="time-grid">
-        <button onclick="startTimer(60)">1 Hour</button>
-        <button onclick="startTimer(90)">1h 30m</button>
-        <button onclick="startTimer(120)">2 Hours</button>
-        <button onclick="startTimer(150)">2h 30m</button>
-      </div>
+      <div id="timeGrid" class="time-grid"></div>
 
       <!-- Custom Time -->
       <div class="custom">
@@ -430,7 +425,7 @@
 
   <!-- Script -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="script.js?v=20260204i"></script>
+  <script src="script.js?v=20260218a"></script>
 
 </body>
 </html>

@@ -47,6 +47,10 @@ const homeGoThemesBtn = document.getElementById("homeGoThemesBtn");
 const homeUsername = document.getElementById("homeUsername");
 const timerBackBtn = document.getElementById("timerBackBtn");
 const timeBackBtn = document.getElementById("timeBackBtn");
+const timeGrid = document.getElementById("timeGrid");
+const customHoursInput = document.getElementById("customHours");
+const customMinutesInput = document.getElementById("customMinutes");
+const customSecondsInput = document.getElementById("customSeconds");
 const localMultiBtn = document.getElementById("localMultiBtn");
 const localDeleteBtn = document.getElementById("localDeleteBtn");
 const onlineMultiBtn = document.getElementById("onlineMultiBtn");
@@ -120,6 +124,7 @@ const THEME_RECENT_KEY = "ambientRecentThemes";
 const THEME_USAGE_KEY = "ambientThemeUsage";
 const GUEST_SAVE_TOAST_SEEN_KEY = "ambientGuestSaveToastSeen";
 const CLOUD_THEME_NAME_CACHE_KEY = "ambientCloudThemeNameCache";
+const TIMER_CUSTOM_PRESETS_KEY = "ambientTimerCustomPresets";
 
 const SUPABASE_URL = window.SUPABASE_URL || "https://fytjxvaxxtmnaoynpxqy.supabase.co";
 const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5dGp4dmF4eHRtbmFveW5weHF5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAxMTMzMjEsImV4cCI6MjA4NTY4OTMyMX0.CxVEQUgYEfkVqtyj78pyDCuWfgqU98r3oFTzS7ijM-0";
@@ -204,6 +209,14 @@ let themesNameColumnAvailable = true;
 let themesNameColumnWarned = false;
 let onlineUploadChain = Promise.resolve();
 let onlineUploadBusy = false;
+const BUILTIN_TIMER_PRESETS = [
+  { seconds: 3600, label: "1 Hour" },
+  { seconds: 5400, label: "1h 30m" },
+  { seconds: 7200, label: "2 Hours" },
+  { seconds: 9000, label: "2h 30m" }
+];
+const BUILTIN_TIMER_PRESET_SECONDS = new Set(BUILTIN_TIMER_PRESETS.map((item) => item.seconds));
+let customTimerPresetSeconds = [];
 const EXTRA_BUILTIN_THEMES = [
   { name: "Waterfall of Godafoss", src: "https://motionbgs.com/dl/hd/6", preview: "https://motionbgs.com/media/6/waterfall-of-godafoss-in-iceland.1920x1080.jpg", captureFirstFrame: true },
   { name: "Green Grass", src: "https://motionbgs.com/dl/hd/34", preview: "https://motionbgs.com/media/34/green-grass.1920x1080.jpg", captureFirstFrame: true },
@@ -600,6 +613,32 @@ function removeThemeFromHistory(match = {}) {
     }
   }
 
+  renderRecentThemes();
+  if (currentThemeView === "all") {
+    renderAllThemesGrid();
+  }
+}
+
+function syncRecentThemeName(match = {}, name = "") {
+  const trimmed = String(name || "").trim();
+  if (!trimmed) return;
+
+  const matchId = String(match.id || match.cloudId || "").trim();
+  const matchSrc = normalizeSrc(match.src || match.url || "");
+  if (!matchId && !matchSrc) return;
+
+  const recent = getRecentThemes();
+  let changed = false;
+  const nextRecent = recent.map((item) => {
+    const sameId = matchId && String(item?.id || "").trim() === matchId;
+    const sameSrc = matchSrc && normalizeSrc(item?.src || "") === matchSrc;
+    if (!sameId && !sameSrc) return item;
+    changed = true;
+    return { ...item, name: trimmed };
+  });
+
+  if (!changed) return;
+  setRecentThemes(nextRecent);
   renderRecentThemes();
   if (currentThemeView === "all") {
     renderAllThemesGrid();
@@ -1372,7 +1411,9 @@ function renderThemeCard(theme, container, options) {
         }
         nameSpan.textContent = nextName;
         card.dataset.name = nextName.toLowerCase();
+        card.dataset.displayName = nextName;
         theme.name = nextName;
+        syncRecentThemeName(theme, nextName);
         cleanup(true);
         if (theme.source === "cloud") {
           rememberCloudThemeName(theme.cloudId || theme.id, nextName, theme.src || theme.url, theme.mediaType);
@@ -2672,7 +2713,6 @@ async function loadAndRenderLocalThemes() {
       applySearchFilter(themeSearch?.value || "");
       return;
     }
-    localRenderSignature = signature;
     localThemesGrid.innerHTML = "";
     for (const url of localObjectUrls.values()) {
       URL.revokeObjectURL(url);
@@ -2723,6 +2763,8 @@ async function loadAndRenderLocalThemes() {
         }
       });
     }
+    if (token !== localRenderToken) return;
+    localRenderSignature = signature;
   } else {
     const cloudLocal = getCloudThemesByKind("local");
     const signature = `cloud|${cloudLocal
@@ -2736,7 +2778,6 @@ async function loadAndRenderLocalThemes() {
       applySearchFilter(themeSearch?.value || "");
       return;
     }
-    localRenderSignature = signature;
     localThemesGrid.innerHTML = "";
     for (const url of localObjectUrls.values()) {
       URL.revokeObjectURL(url);
@@ -2766,7 +2807,9 @@ async function loadAndRenderLocalThemes() {
         return ok;
       }
     });
-  }
+    }
+    if (token !== localRenderToken) return;
+    localRenderSignature = signature;
   }
 
   renderRecentThemes();
@@ -2793,7 +2836,6 @@ async function loadAndRenderOnlineThemes() {
       applySearchFilter(themeSearch?.value || "");
       return;
     }
-    onlineRenderSignature = signature;
     onlineThemesGrid.innerHTML = "";
 
     for (const theme of cloudOnline) {
@@ -2810,6 +2852,8 @@ async function loadAndRenderOnlineThemes() {
       });
       if (token !== onlineRenderToken) return;
     }
+    if (token !== onlineRenderToken) return;
+    onlineRenderSignature = signature;
   } else {
     const renderedKeys = new Set();
     const localList = getOnlineThemes();
@@ -2824,7 +2868,6 @@ async function loadAndRenderOnlineThemes() {
       applySearchFilter(themeSearch?.value || "");
       return;
     }
-    onlineRenderSignature = signature;
     onlineThemesGrid.innerHTML = "";
 
     for (const theme of localList) {
@@ -2834,6 +2877,8 @@ async function loadAndRenderOnlineThemes() {
       await renderOnlineTheme(theme);
       if (token !== onlineRenderToken) return;
     }
+    if (token !== onlineRenderToken) return;
+    onlineRenderSignature = signature;
   }
 
   renderRecentThemes();
@@ -2992,6 +3037,7 @@ function initThemeLibrary() {
 }
 
 initThemeLibrary();
+initTimerPresetGrid();
 initBuiltInThemes();
 initSearch();
 initAuth();
@@ -3813,29 +3859,193 @@ function promptLoginToast() {
    TIMER STARTERS
    ================================ */
 
+function formatTimerPresetLabel(totalSeconds) {
+  const safe = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const h = Math.floor(safe / 3600);
+  const m = Math.floor((safe % 3600) / 60);
+  const s = safe % 60;
+
+  if (s === 0) {
+    if (h > 0 && m > 0) return `${h}h ${m}m`;
+    if (h > 0) return h === 1 ? "1 Hour" : `${h} Hours`;
+    return `${m}m`;
+  }
+  if (h > 0) {
+    return m > 0 ? `${h}h ${m}m ${s}s` : `${h}h ${s}s`;
+  }
+  if (m > 0) {
+    return `${m}m ${s}s`;
+  }
+  return `${s}s`;
+}
+
+function loadCustomTimerPresets() {
+  const stored = readStoredJson(TIMER_CUSTOM_PRESETS_KEY, []);
+  const list = Array.isArray(stored) ? stored : [];
+  const seen = new Set();
+  const cleaned = [];
+
+  for (const value of list) {
+    const seconds = Math.floor(Number(value));
+    if (!Number.isFinite(seconds) || seconds <= 0) continue;
+    if (BUILTIN_TIMER_PRESET_SECONDS.has(seconds)) continue;
+    if (seen.has(seconds)) continue;
+    seen.add(seconds);
+    cleaned.push(seconds);
+  }
+
+  cleaned.sort((a, b) => a - b);
+  if (JSON.stringify(cleaned) !== JSON.stringify(list)) {
+    localStorage.setItem(TIMER_CUSTOM_PRESETS_KEY, JSON.stringify(cleaned));
+  }
+  return cleaned;
+}
+
+function saveCustomTimerPresets(list) {
+  const safeList = Array.isArray(list) ? list : [];
+  localStorage.setItem(TIMER_CUSTOM_PRESETS_KEY, JSON.stringify(safeList));
+}
+
+function parseCustomTimerInputs({ normalize = false } = {}) {
+  let h = Math.floor(Number(customHoursInput?.value || 0));
+  let m = Math.floor(Number(customMinutesInput?.value || 0));
+  let s = Math.floor(Number(customSecondsInput?.value || 0));
+
+  h = Number.isFinite(h) && h > 0 ? h : 0;
+  m = Number.isFinite(m) && m > 0 ? m : 0;
+  s = Number.isFinite(s) && s > 0 ? s : 0;
+
+  const totalSeconds = (h * 3600) + (m * 60) + s;
+  if (normalize && totalSeconds > 0) {
+    const nh = Math.floor(totalSeconds / 3600);
+    const nm = Math.floor((totalSeconds % 3600) / 60);
+    const ns = totalSeconds % 60;
+    if (customHoursInput) customHoursInput.value = String(nh);
+    if (customMinutesInput) customMinutesInput.value = String(nm);
+    if (customSecondsInput) customSecondsInput.value = String(ns);
+  }
+
+  return totalSeconds;
+}
+
+function createTimerPresetButton({ seconds, label, custom = false }) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = custom ? "timer-preset custom-preset" : "timer-preset";
+  btn.textContent = label;
+  btn.addEventListener("click", () => startTimerFromSeconds(seconds));
+
+  if (custom) {
+    const remove = document.createElement("span");
+    remove.className = "timer-preset-remove";
+    remove.setAttribute("role", "button");
+    remove.setAttribute("tabindex", "0");
+    remove.setAttribute("aria-label", `Remove ${label} preset`);
+    remove.textContent = "×";
+
+    const onRemove = async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const ok = await openConfirm({
+        title: "Remove timer preset?",
+        message: `${label} will be removed from your saved presets.`,
+        okLabel: "Remove"
+      });
+      if (!ok) return;
+      removeCustomTimerPreset(seconds);
+    };
+
+    remove.addEventListener("click", onRemove);
+    remove.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        void onRemove(e);
+      }
+    });
+    btn.appendChild(remove);
+  }
+
+  return btn;
+}
+
+function removeCustomTimerPreset(seconds) {
+  const next = customTimerPresetSeconds.filter((value) => value !== seconds);
+  if (next.length === customTimerPresetSeconds.length) return;
+  customTimerPresetSeconds = next;
+  saveCustomTimerPresets(customTimerPresetSeconds);
+  renderTimerPresetGrid();
+  showToast({
+    message: `Removed ${formatTimerPresetLabel(seconds)} preset.`,
+    durationMs: 1700
+  });
+}
+
+function addCustomTimerPresetFromInputs() {
+  const totalSeconds = parseCustomTimerInputs({ normalize: true });
+  if (totalSeconds <= 0) {
+    showToast({
+      message: "Enter a valid custom time first.",
+      type: "error",
+      durationMs: 1800
+    });
+    return;
+  }
+  if (BUILTIN_TIMER_PRESET_SECONDS.has(totalSeconds) || customTimerPresetSeconds.includes(totalSeconds)) {
+    showToast({
+      message: "That preset already exists.",
+      type: "error",
+      durationMs: 1800
+    });
+    return;
+  }
+  customTimerPresetSeconds.push(totalSeconds);
+  customTimerPresetSeconds.sort((a, b) => a - b);
+  saveCustomTimerPresets(customTimerPresetSeconds);
+  renderTimerPresetGrid();
+  showToast({
+    message: `Added ${formatTimerPresetLabel(totalSeconds)} preset.`,
+    durationMs: 1800
+  });
+}
+
+function renderTimerPresetGrid() {
+  if (!timeGrid) return;
+  const presetButtons = [
+    ...BUILTIN_TIMER_PRESETS.map((item) => ({ seconds: item.seconds, label: item.label, custom: false })),
+    ...customTimerPresetSeconds.map((seconds) => ({
+      seconds,
+      label: formatTimerPresetLabel(seconds),
+      custom: true
+    }))
+  ];
+
+  timeGrid.innerHTML = "";
+
+  presetButtons.forEach((preset) => {
+    timeGrid.appendChild(createTimerPresetButton(preset));
+  });
+
+  const addBtn = document.createElement("button");
+  addBtn.type = "button";
+  addBtn.className = "timer-preset add-preset";
+  addBtn.setAttribute("aria-label", "Add a timer preset from custom fields");
+  addBtn.textContent = "+";
+  addBtn.addEventListener("click", addCustomTimerPresetFromInputs);
+  timeGrid.appendChild(addBtn);
+}
+
+function initTimerPresetGrid() {
+  customTimerPresetSeconds = loadCustomTimerPresets();
+  renderTimerPresetGrid();
+}
+
 function startTimer(minutes) {
   startTimerFromSeconds(minutes * 60);
 }
 
 /* Custom Time Input */
 function startCustomTimer() {
-  let h = parseInt(document.getElementById("customHours").value) || 0;
-  let m = parseInt(document.getElementById("customMinutes").value) || 0;
-  let s = parseInt(document.getElementById("customSeconds").value) || 0;
-
-  let totalSeconds = (h * 3600) + (m * 60) + s;
-
+  const totalSeconds = parseCustomTimerInputs({ normalize: true });
   if (totalSeconds <= 0) return;
-
-  // Normalize overflow back
-  h = Math.floor(totalSeconds / 3600);
-  m = Math.floor((totalSeconds % 3600) / 60);
-  s = totalSeconds % 60;
-
-  document.getElementById("customHours").value = h;
-  document.getElementById("customMinutes").value = m;
-  document.getElementById("customSeconds").value = s;
-
   startTimerFromSeconds(totalSeconds);
 }
 
