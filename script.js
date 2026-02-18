@@ -201,6 +201,7 @@ const UPLOAD_ATTEMPT_TIMEOUT_MS = IS_SLOW_NETWORK ? 70000 : 35000;
 const UPLOAD_MAX_ATTEMPTS = IS_SLOW_NETWORK ? 3 : 2;
 const ONLINE_UPLOAD_STALL_TIMEOUT_MS = IS_SLOW_NETWORK ? 30000 : 18000;
 const THEME_SELECT_DEDUP_MS = 700;
+const THEME_HOVER_SUPPRESS_AFTER_SELECT_MS = 1400;
 let builtInThemes = [];
 let queuedVideoPreloads = 0;
 const warmingVideoUrls = new Set();
@@ -212,6 +213,7 @@ let themesNameColumnWarned = false;
 let onlineUploadChain = Promise.resolve();
 let onlineUploadBusy = false;
 let themeSelectLockUntil = 0;
+let suppressHoverPreviewUntil = 0;
 const BUILTIN_TIMER_PRESETS = [
   { seconds: 3600, label: "1 Hour" },
   { seconds: 5400, label: "1h 30m" },
@@ -370,8 +372,10 @@ function applyTheme(theme, { previewOnly = false } = {}) {
     clearTimeout(hoverPreviewTimer);
     clearTimeout(hoverResetTimer);
     lastHoveredCard = null;
+    suppressHoverPreviewUntil = Date.now() + THEME_HOVER_SUPPRESS_AFTER_SELECT_MS;
   }
   if (previewOnly) {
+    if (Date.now() < suppressHoverPreviewUntil) return;
     if (currentPreviewTheme.src === theme.src && currentPreviewTheme.mediaType === theme.mediaType) {
       return;
     }
@@ -450,7 +454,38 @@ function setThemeUsageMap(map) {
 
 function getRecentThemes() {
   const list = readStoredJson(THEME_RECENT_KEY, []);
-  return Array.isArray(list) ? list : [];
+  if (!Array.isArray(list)) return [];
+
+  const seen = new Set();
+  let changed = false;
+  const normalized = [];
+
+  for (const item of list) {
+    if (!item || typeof item !== "object") {
+      changed = true;
+      continue;
+    }
+    const type = item.mediaType || "image";
+    const src = normalizeSrc(item.src || "");
+    const id = String(item.id || "").trim();
+    const key = String(item.key || "").trim();
+    const dedupeKey = key || (id ? `id:${id}` : `${type}|${src}`);
+    if (dedupeKey && seen.has(dedupeKey)) {
+      changed = true;
+      continue;
+    }
+    if (dedupeKey) seen.add(dedupeKey);
+    normalized.push(item);
+  }
+
+  if (normalized.length > 4) {
+    changed = true;
+    normalized.length = 4;
+  }
+  if (changed) {
+    setRecentThemes(normalized);
+  }
+  return normalized;
 }
 
 function setRecentThemes(list) {
@@ -687,6 +722,9 @@ function recordThemeSelection(theme) {
   if (!theme || !theme.src) return;
   const now = Date.now();
   const key = getThemeIdentity(theme);
+  const normalizedSrc = normalizeSrc(theme.src || "");
+  const normalizedType = theme.mediaType || "image";
+  const normalizedId = String(theme.id || "").trim();
   const usage = getThemeUsageMap();
   const current = usage[key] || { count: 0, lastUsed: 0 };
   usage[key] = {
@@ -695,7 +733,16 @@ function recordThemeSelection(theme) {
   };
   setThemeUsageMap(usage);
 
-  const recent = getRecentThemes().filter(item => item.key !== key);
+  const recent = getRecentThemes().filter((item) => {
+    if (!item) return false;
+    if (item.key === key) return false;
+    const itemId = String(item.id || "").trim();
+    if (normalizedId && itemId && itemId === normalizedId) return false;
+    const itemType = item.mediaType || "image";
+    const itemSrc = normalizeSrc(item.src || "");
+    if (normalizedSrc && itemSrc && itemType === normalizedType && itemSrc === normalizedSrc) return false;
+    return true;
+  });
   recent.unshift({
     key,
     id: theme.id || "",
@@ -822,6 +869,7 @@ function renderRecentThemes() {
   }
   const lookups = buildRecentThemeLookups();
   const resolved = [];
+  const seen = new Set();
   let unresolvedBlobCount = 0;
   for (const item of recent) {
     const next = resolveRecentThemeItem(item, lookups);
@@ -830,6 +878,9 @@ function renderRecentThemes() {
       unresolvedBlobCount += 1;
       continue;
     }
+    const dedupeKey = next.key || getThemeIdentity(next);
+    if (dedupeKey && seen.has(dedupeKey)) continue;
+    if (dedupeKey) seen.add(dedupeKey);
     resolved.push(next);
   }
   if (!resolved.length) {
@@ -1326,6 +1377,7 @@ function attachThemeInteractions(card, theme, onSelect) {
 
   if (supportsHover) {
     card.addEventListener("mouseenter", () => {
+      if (Date.now() < suppressHoverPreviewUntil) return;
       clearTimeout(hoverResetTimer);
       clearTimeout(hoverPreviewTimer);
       lastHoveredCard = card;
@@ -1336,6 +1388,7 @@ function attachThemeInteractions(card, theme, onSelect) {
         hydrateBuiltInPreview(card, theme);
       }
       hoverPreviewTimer = setTimeout(() => {
+        if (Date.now() < suppressHoverPreviewUntil) return;
         if (lastHoveredCard === card) {
           applyTheme(theme, { previewOnly: true });
         }
